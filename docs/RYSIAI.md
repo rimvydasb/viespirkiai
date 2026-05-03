@@ -2,10 +2,23 @@
 
 ## Summary
 
-Add a new page `/rysiai/:jarKodas` (Lithuanian: "spider web") that renders an interactive Sigma.js
-network graph of procurement relationships centred on the company identified by `jarKodas`. The page
-immediately initialises the graph with that company as the root node — no search step is needed.
-Visiting `/rysiai/` without a company code returns a 404-style "įmonė nenurodyta" page.
+The `/rysiai/` namespace renders an interactive Sigma.js network graph of procurement relationships.
+Three typed URL routes open the graph pre-centred on a specific entity:
+
+| URL pattern                             | Center node          |
+|-----------------------------------------|----------------------|
+| `/rysiai/asmuo/:jarKodas`               | `OrganizationEntity` |
+| `/rysiai/sutartis/:sutartiesUnikalusId` | `ContractEntity`     |
+| `/rysiai/viesiejiPirkimai/:pirkimoId`   | `ProcurementEntity`  |
+
+The legacy route `/rysiai/:jarKodas` (numeric) is kept for backward compatibility and behaves
+identically to `/rysiai/asmuo/:jarKodas`.
+
+Visiting `/rysiai/` without a path segment returns a 404-style "įmonė nenurodyta" page.
+
+If the URL contains a `#filter=` hash on arrival, the filter is applied to the initial node
+immediately after it loads. Additional expanded nodes can also be encoded in the hash (see
+[URL Hash State Management](#url-hash-state-management)).
 
 Interaction model:
 
@@ -233,25 +246,65 @@ New server-side module `modules/rysiai/` containing:
     - `expandProcurement(pirkimoId)` — queries `sutartys WHERE pirkimoNumeris = $pirkimoId GROUP BY
       tiekejoKodas` to find distinct winning seller orgs + `jarCsv JOIN` for their names; returns
       seller `OrganizationEntity` stub nodes + `Award` edges from the procurement node.
+    - `expandSutartis(sutartiesUnikalusId)` — **(new)** queries `sutartys JOIN jarCsv` for the single
+      contract row; returns the `ContractEntity` node (marked `isRoot: true`) + buyer and seller
+      `OrganizationEntity` stub nodes + `Order`/`Delivery` edges. Used when the page opens with a
+      contract as the center figure.
+    - `expandPirkimas(pirkimoId)` — **(new)** queries `viesiejiPirkimai JOIN jarCsv` for the
+      procurement row + buyer org stub; delegates to `expandProcurement` for winner/bidder data;
+      returns the `ProcurementEntity` node (marked `isRoot: true`, `expanded: true`) + buyer
+      `OrganizationEntity` stub + `Procurement` edge + all winner/bidder stubs. Used when the page
+      opens with a procurement as the center figure.
     - All functions return `{ nodes: GraphNode[], edges: GraphEdge[] }`.
 
 New route `routes/rysiai.js`:
 
-| Method | Path                             | Purpose                                                                                           |
-|--------|----------------------------------|---------------------------------------------------------------------------------------------------|
-| `GET`  | `/rysiai/`                       | Returns 404 ("įmonė nenurodyta") — no jarKodas was given                                          |
-| `GET`  | `/rysiai/:jarKodas`              | EJS page shell with jarKodas passed as template variable; graph auto-initialises on load          |
-| `GET`  | `/rysiai/expand/:jarKodas`       | JSON: graph nodes+edges for one organisation (calls `expandOrg`)                                  |
-| `GET`  | `/rysiai/expand-person`          | JSON: graph nodes+edges for one person by full name (`?vardas=...`). Calls `expandPerson`.        |
-| `GET`  | `/rysiai/expand-procurement/:id` | JSON: graph nodes+edges for one procurement — its winning seller orgs. Calls `expandProcurement`. |
+| Method | Path                                           | Purpose                                                                                           |
+|--------|------------------------------------------------|---------------------------------------------------------------------------------------------------|
+| `GET`  | `/rysiai/`                                     | Returns 404 ("įmonė nenurodyta") — no entity given                                                |
+| `GET`  | `/rysiai/asmuo/:jarKodas`                      | EJS page shell; `RYSIAI_CONFIG = { entityType: 'asmuo', entityId: jarKodas }`                     |
+| `GET`  | `/rysiai/sutartis/:sutartiesUnikalusId`        | EJS page shell; `RYSIAI_CONFIG = { entityType: 'sutartis', entityId: sutartiesUnikalusId }`       |
+| `GET`  | `/rysiai/viesiejiPirkimai/:pirkimoId`          | EJS page shell; `RYSIAI_CONFIG = { entityType: 'viesiejiPirkimai', entityId: pirkimoId }`         |
+| `GET`  | `/rysiai/:jarKodas`                            | Legacy — numeric jarKodas only; identical to `/rysiai/asmuo/:jarKodas`                            |
+| `GET`  | `/rysiai/expand/:jarKodas`                     | JSON: graph nodes+edges for one organisation (calls `expandOrg`)                                  |
+| `GET`  | `/rysiai/expand-person`                        | JSON: graph nodes+edges for one person by full name (`?vardas=...`). Calls `expandPerson`.        |
+| `GET`  | `/rysiai/expand-procurement/:id`               | JSON: graph nodes+edges for one procurement — its winning seller orgs. Calls `expandProcurement`. |
+| `GET`  | `/rysiai/expand-contract/:pirkimoNumeris`      | JSON: procurement hub + winner/loser orgs for a contract. Calls `expandContract`.                 |
+| `GET`  | `/rysiai/expand-sutartis/:sutartiesUnikalusId` | JSON: contract + buyer/seller stubs as center load. Calls `expandSutartis`.                       |
+| `GET`  | `/rysiai/expand-pirkimas/:pirkimoId`           | JSON: procurement + buyer org + winner/bidder stubs as center load. Calls `expandPirkimas`.       |
 
-> **Route ordering note**: `expand` and `expand-person` static path segments must be registered _before_
-> the `/:jarKodas` wildcard so they are not swallowed by the dynamic route handler.
+> **Route ordering note**: all static path segments (`expand`, `expand-person`, `asmuo`, `sutartis`,
+> `viesiejiPirkimai`) must be registered _before_ the `/:jarKodas` wildcard.
 
 Browser bundle `src/rysiai-bundle.js` compiled by esbuild into `public/dist/rysiai.js`:
 imports sigma, graphology, layouts, and node-programs; exports nothing — attaches `window.Rysiai`
 with `{ Sigma, Graph, forceAtlas2, noverlap, NodeBorderProgram, NodeImageProgram }` so the inline EJS
 script can initialise the graph.
+
+#### `RYSIAI_CONFIG` — client bootstrap object
+
+`views/rysiai/index.ejs` inlines a `window.RYSIAI_CONFIG` object that tells `rysiai-app.js` which
+entity to load on `DOMContentLoaded`:
+
+```js
+// server injects entityType and entityId
+window.RYSIAI_CONFIG = {
+    entityType: 'asmuo' | 'sutartis' | 'viesiejiPirkimai',
+    entityId: '<string>',
+};
+```
+
+`rysiai-app.js` uses this to call the correct initial load:
+
+| `entityType`       | Initial load call            | Initial selected node    |
+|--------------------|------------------------------|--------------------------|
+| `asmuo`            | `ui.loadOrg(entityId, null)` | `org:{entityId}`         |
+| `sutartis`         | `ui.loadSutartis(entityId)`  | `contract:{entityId}`    |
+| `viesiejiPirkimai` | `ui.loadPirkimas(entityId)`  | `procurement:{entityId}` |
+
+`loadSutartis` and `loadPirkimas` are new public methods on the `createExpandUI` return value, calling
+`/rysiai/expand-sutartis/:id` and `/rysiai/expand-pirkimas/:id` respectively and marking the root
+node as selected after merge.
 
 ### Client-side fetch strategy
 
@@ -297,22 +350,28 @@ graph TD
     end
 
     subgraph "routes/rysiai.js"
-        PageRoute["GET /rysiai/:jarKodas → EJS shell\n(jarKodas passed as template var)"]
+        PageRoute["GET /rysiai/asmuo/:jarKodas → EJS shell\nGET /rysiai/sutartis/:id → EJS shell\nGET /rysiai/viesiejiPirkimai/:id → EJS shell"]
         NotFoundRoute["GET /rysiai/ → 404"]
         ExpandOrgAPI["GET /rysiai/expand/:jarKodas → JSON"]
         ExpandPersonAPI["GET /rysiai/expand-person?vardas=... → JSON"]
+        ExpandSutartisAPI["GET /rysiai/expand-sutartis/:id → JSON"]
+        ExpandPirkimasAPI["GET /rysiai/expand-pirkimas/:id → JSON"]
     end
 
     subgraph "modules/rysiai/expand.js"
-        ExpandOrg["expandOrg(jarKodas)\njarCsv (root org metadata)\n+ pinregJuridiniaiRysiai (by jarKodas)\n+ sutartysSaliuSumos JOIN jarCsv (contract partners)"]
-        ExpandPerson["expandPerson(fullName)\npinregJuridiniaiRysiai (by vardas+pavarde)\n→ all darbovietes + rysiaiSuJa + sutuoktinioDarbovietes"]
+        ExpandOrg["expandOrg(jarKodas)"]
+        ExpandPerson["expandPerson(fullName)"]
+        ExpandSutartis["expandSutartis(sutartiesUnikalusId)"]
+        ExpandPirkimas["expandPirkimas(pirkimoId)"]
     end
 
-    PageRoute -->|" DOMContentLoaded: loadOrg(jarKodas) "| ExpandOrgAPI
-    SigmaCanvas -->|" org node click "| ExpandOrgAPI
-    SigmaCanvas -->|" person node click\n(vardas + pavarde from node attrs) "| ExpandPersonAPI
+    PageRoute -->|" DOMContentLoaded: loadOrg/loadSutartis/loadPirkimas "| ExpandOrgAPI
+    SigmaCanvas -->|" org node dbl-click "| ExpandOrgAPI
+    SigmaCanvas -->|" person node dbl-click "| ExpandPersonAPI
     ExpandOrgAPI --> ExpandOrg --> ExpandOrgAPI
     ExpandPersonAPI --> ExpandPerson --> ExpandPersonAPI
+    ExpandSutartisAPI --> ExpandSutartis --> ExpandSutartisAPI
+    ExpandPirkimasAPI --> ExpandPirkimas --> ExpandPirkimasAPI
     ExpandOrgAPI -->|" { nodes, edges } "| GraphStore
     ExpandPersonAPI -->|" { nodes, edges } "| GraphStore
     GraphStore --> SigmaCanvas
@@ -325,40 +384,23 @@ sequenceDiagram
     actor User
     participant Browser
     participant Server
-    User ->> Browser: GET /rysiai/
-    Browser ->> Server: GET /rysiai/
-    Server -->> Browser: 404 "įmonė nenurodyta"
-    User ->> Browser: GET /rysiai/{jarKodas}
-    Browser ->> Server: GET /rysiai/{jarKodas}
-    Server -->> Browser: EJS page (empty Sigma canvas, jarKodas embedded)
+    User ->> Browser: GET /rysiai/asmuo/{jarKodas}#filter=DS
+    Browser ->> Server: GET /rysiai/asmuo/{jarKodas}
+    Server -->> Browser: EJS page (RYSIAI_CONFIG injected)
     Browser ->> Browser: DOMContentLoaded → loadOrg(jarKodas)
     Browser ->> Server: GET /rysiai/expand/{jarKodas}
     Server -->> Browser: { nodes[], edges[] }
-    Browser ->> Browser: Add to graphology Graph
-    Browser ->> Browser: Run ForceAtlas2 layout
-    Browser ->> Browser: Render with Sigma
-    User ->> Browser: Clicks any node
-    Browser ->> Browser: Select node → show details panel (Išskleisti/Suskleisti button)
+    Browser ->> Browser: mergeGraphElements → rebuildViewGraph → runLayout → render
+    Browser ->> Browser: selectNode('org:{jarKodas}')
+    Browser ->> Browser: applyFilterFromHash() → legendState updated → rebuildAndRefresh
+    User ->> Browser: Toggles a legend checkbox
+    Browser ->> Browser: legendState mutated → rebuildAndRefresh → updateHashFromFilter()
     User ->> Browser: Double-clicks unexpanded org node
-    Browser ->> Browser: Show loading overlay (blocks further clicks)
-    Browser ->> Server: GET /rysiai/expand/{jarKodas}
-    Server -->> Browser: { nodes[], edges[] } (merged, idempotent)
-    Browser ->> Browser: Merge nodes, pre-position new nodes at clicked node pos
-    Browser ->> Browser: Run ForceAtlas2 → compute final positions
-    Browser ->> Browser: animateNodes (600ms, quadraticInOut) clicked pos → final pos
-    Browser ->> Browser: Hide loading overlay; details panel switches to Suskleisti button
-    User ->> Browser: Double-clicks unexpanded person node
-Note over Browser: person node attrs contain vardas + pavarde
-Browser ->> Browser: Show loading overlay
-Browser ->> Server: GET /rysiai/expand-person?vardas=Jonas+Jonaitis
-Server -->> Browser: { nodes[], edges[] }
-Browser ->> Browser: Merge nodes, pre-position at person node pos
-Browser ->> Browser: Run ForceAtlas2 + noverlap → compute final positions
-Browser ->> Browser: animateNodes (600ms, quadraticInOut) → final pos
-Browser ->> Browser: Hide loading overlay
-User ->> Browser: Clicks "Suskleisti" in details panel
-Browser ->> Browser: Remove expansion edges+orphan nodes from dataGraph
-Browser ->> Browser: Set expanded=false, rebuild viewGraph, refresh
+    Browser ->> Browser: Show loading overlay
+    Browser ->> Server: GET /rysiai/expand/{jarKodas2}
+    Server -->> Browser: { nodes[], edges[] }
+    Browser ->> Browser: Merge → layout → animateNodes (600ms)
+    Browser ->> Browser: Hide overlay updateHashFromFilter()
 ```
 
 ---
@@ -373,58 +415,63 @@ graph TD
         BUNDLE["public/dist/rysiai.js\n(esbuild bundle of rysiai-bundle.js)\nSigma · graphology · forceAtlas2\nnoverlap · NodeImageProgram\n→ window.Rysiai"]
 
         subgraph APP["public/dist/rysiai-app.js\n(esbuild bundle of src/rysiai-app.js)"]
-            ICONS["src/rysiai/icons.js\nMUI_ICON_PATHS\nmakeIconDataUri · getIconKey"]
-            COLORS["src/rysiai/colors.js\nNODE_COLOR · EDGE_COLOR\nnodeColor · hiddenEdgeTypes"]
+            ICONS["src/rysiai/graph-theme.js\nNODE_COLOR · EDGE_COLOR\nnodeColor · hiddenEdgeTypes\nMUI_ICON_PATHS · makeIconDataUri · getIconKey"]
             RENDERERS["src/rysiai/renderers.js\ndrawNodeLabel · drawNodeHover"]
-            GRAPHUTILS["src/rysiai/graph-utils.js\nmergeGraphElements(dataGraph,getNodePos,data,fromNodeId)\nrebuildViewGraph(dataGraph,viewGraph,hiddenEdgeTypes)\nsyncPositionsToData(dataGraph,viewGraph)\nrunLayout(graph)\n★ testable without DOM"]
-            LEGEND["src/rysiai/legend.js\nbindLegendCheckboxes(renderer,hiddenEdgeTypes,rebuildAndRefresh)"]
-            EXPANDUI["src/rysiai/expand-ui.js\ncreateExpandUI({dataGraph,viewGraph,...})\n→ rebuildAndRefresh callback"]
-            ENTRY["src/rysiai-app.js ← esbuild entry\ncreates dataGraph + viewGraph\nSigma uses viewGraph\nwires clickNode + DOMContentLoaded"]
+            GRAPHUTILS["src/rysiai/graph-utils.js\nmergeGraphElements · rebuildViewGraph\nsyncPositionsToData · runLayout\n★ testable without DOM"]
+            LEGEND["src/rysiai/legend.js\nNodeLegend.updateForNode · bindCheckboxes"]
+            LEGENDSTATE["src/rysiai/legend-state.js\nLegendState\ninitNode · setTypeVisible · isEdgeHidden"]
+            HASHSTATE["src/rysiai/hash-state.js\nFILTER_ID_MAP · FILTER_CHAR_MAP\napplyFilterFromHash(legendState, nodeId)\nupdateHashFromFilter(legendState, graph)"]
+            EXPANDUI["src/rysiai/expand-ui.js\ncreateExpandUI({dataGraph,viewGraph,...})\nloadOrg · loadSutartis · loadPirkimas\n→ rebuildAndRefresh callback"]
+            ENTRY["src/rysiai-app.js ← esbuild entry\ncreates dataGraph + viewGraph\nSigma uses viewGraph\nwires DOMContentLoaded + hash logic"]
         end
 
         ENTRY --> ICONS
-        ENTRY --> COLORS
         ENTRY --> RENDERERS
         ENTRY --> GRAPHUTILS
         ENTRY --> LEGEND
+        ENTRY --> LEGENDSTATE
+        ENTRY --> HASHSTATE
         ENTRY --> EXPANDUI
         BUNDLE -->|" window.Rysiai "| ENTRY
     end
 
     subgraph Server["Server"]
-        ROUTE["routes/rysiai.js\nExpress router\nGET /rysiai/:jarKodas\nGET /rysiai/expand/:jarKodas\nGET /rysiai/expand-person"]
-        EXPAND["modules/rysiai/expand.js\nexpandOrg · expandPerson\npure helpers: orgNode · personNode\ncontractNode · edge · mapPareigos\nmapRysioPobudis · mapFormosKodas"]
-        VIEW["views/rysiai/index.ejs\npage shell · legend HTML\ncheckboxes · Sigma container"]
+        ROUTE["routes/rysiai.js\nExpress router\nGET /rysiai/asmuo/:jarKodas\nGET /rysiai/sutartis/:id\nGET /rysiai/viesiejiPirkimai/:id\nGET /rysiai/expand-sutartis/:id\nGET /rysiai/expand-pirkimas/:id"]
+        EXPAND["modules/rysiai/expand.js\nexpandOrg · expandPerson\nexpandSutartis · expandPirkimas\npure helpers"]
+        VIEW["views/rysiai/index.ejs\npage shell · legend HTML\nRYSIAI_CONFIG { entityType, entityId }"]
     end
 
     subgraph Tests["Tests — node --test"]
-        T_EXPAND["test/rysiai/expand.test.js\nserver-side pure helpers\n(61 tests)"]
-        T_GRAPHUTILS["test/rysiai/graph-utils.test.js\nclient-side mergeGraphElements\nrebuildViewGraph: orphan removal · anchor logic\nposition restore · syncPositionsToData"]
+        T_EXPAND["test/rysiai/expand.test.js\nserver-side pure helpers"]
+        T_GRAPHUTILS["test/rysiai/graph-utils.test.js\nclient-side mergeGraphElements\nrebuildViewGraph · syncPositionsToData"]
+        T_HASHSTATE["test/rysiai/hash-state.test.js\napplyFilterFromHash · updateHashFromFilter\nmulti-entity parse · roundtrip"]
     end
 
     ENTRY -->|" fetch /expand/:jk "| ROUTE
-    ENTRY -->|" fetch /expand-person "| ROUTE
+    ENTRY -->|" fetch /expand-sutartis/:id "| ROUTE
     ROUTE --> EXPAND
     ROUTE --> VIEW
     T_EXPAND -.->|" import "| EXPAND
     T_GRAPHUTILS -.->|" import "| GRAPHUTILS
+    T_HASHSTATE -.->|" import "| HASHSTATE
 ```
 
 ### Module responsibilities
 
-| File                        | Layer  | Purpose                                                                                                                                                                                         | DOM required              |
-|-----------------------------|--------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------|
-| `src/rysiai-bundle.js`      | Client | Bundles third-party npm packages; exposes `window.Rysiai`                                                                                                                                       | No                        |
-| `src/rysiai-app.js`         | Client | esbuild entry; creates `dataGraph` + `viewGraph`; Sigma uses `viewGraph`; wires events                                                                                                          | Yes                       |
-| `src/rysiai/icons.js`       | Client | MUI SVG path map; `makeIconDataUri`; `getIconKey`                                                                                                                                               | No                        |
-| `src/rysiai/colors.js`      | Client | `NODE_COLOR`, `EDGE_COLOR`, `nodeColor`, `hiddenEdgeTypes` Set                                                                                                                                  | No                        |
-| `src/rysiai/renderers.js`   | Client | `drawNodeLabel`, `drawNodeHover` — Sigma canvas callbacks                                                                                                                                       | No (canvas ctx passed in) |
-| `src/rysiai/graph-utils.js` | Client | `mergeGraphElements(dataGraph,...)`, `rebuildViewGraph`, `syncPositionsToData`, `runLayout` — **pure, injected deps**                                                                           | No ★                      |
-| `src/rysiai/legend.js`      | Client | `updateLegendForNode(nodeId, legendState, expanded, handlers, counts)` — shows/hides `#rysiai-legend`; renders counts per edge type; hides zero-count rows; renders Suskleisti button at bottom | Yes (queries DOM)         |
-| `src/rysiai/expand-ui.js`   | Client | `createExpandUI({dataGraph,viewGraph,...})` — async fetch + rebuild; returns `rebuildAndRefresh`                                                                                                | Yes                       |
-| `modules/rysiai/expand.js`  | Server | `expandOrg`, `expandPerson`, `expandProcurement`, all pure builder helpers                                                                                                                      | No                        |
-| `routes/rysiai.js`          | Server | Express routes; calls `expandOrg`/`expandPerson`/`expandProcurement`; renders EJS                                                                                                               | No                        |
-| `views/rysiai/index.ejs`    | View   | HTML shell; `#node-details` wrapper (top-right); `#rysiai-details` + `#rysiai-legend` sub-components inside wrapper                                                                             | —                         |
+| File                         | Layer  | Purpose                                                                                                                                                                                | DOM required              |
+|------------------------------|--------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------|
+| `src/rysiai-bundle.js`       | Client | Bundles third-party npm packages; exposes `window.Rysiai`                                                                                                                              | No                        |
+| `src/rysiai-app.js`          | Client | esbuild entry; creates `dataGraph` + `viewGraph`; Sigma uses `viewGraph`; wires DOMContentLoaded (entity-type dispatch) + hash application                                             | Yes                       |
+| `src/rysiai/graph-theme.js`  | Client | `NODE_COLOR`, `EDGE_COLOR`, `nodeColor`, `hiddenEdgeTypes`, icon paths, sizing helpers                                                                                                 | No                        |
+| `src/rysiai/renderers.js`    | Client | `drawNodeLabel`, `drawNodeHover` — Sigma canvas callbacks                                                                                                                              | No (canvas ctx passed in) |
+| `src/rysiai/graph-utils.js`  | Client | `mergeGraphElements(dataGraph,...)`, `rebuildViewGraph`, `syncPositionsToData`, `runLayout` — **pure, injected deps**                                                                  | No ★                      |
+| `src/rysiai/legend.js`       | Client | `NodeLegend.updateForNode` — shows/hides `#rysiai-legend`; renders counts; hides zero-count rows                                                                                       | Yes (queries DOM)         |
+| `src/rysiai/legend-state.js` | Client | `LegendState` — per-node and global edge-type visibility; `isEdgeHidden`, `initNode`, `setTypeVisible`                                                                                 | No                        |
+| `src/rysiai/hash-state.js`   | Client | `FILTER_ID_MAP`, `FILTER_CHAR_MAP`; `applyFilterFromHash(legendState, primaryNodeId)`; `updateHashFromFilter(legendState, graph)` — pure (no DOM reads, writes `window.location.hash`) | No (writes hash only)     |
+| `src/rysiai/expand-ui.js`    | Client | `createExpandUI({...})` — async fetch + rebuild; `loadOrg`, `loadSutartis`, `loadPirkimas`; returns `rebuildAndRefresh`                                                                | Yes                       |
+| `modules/rysiai/expand.js`   | Server | `expandOrg`, `expandPerson`, `expandProcurement`, `expandContract`, `expandSutartis`, `expandPirkimas`, all pure builder helpers                                                       | No                        |
+| `routes/rysiai.js`           | Server | Express routes; calls expand functions; renders EJS; injects `RYSIAI_CONFIG`                                                                                                           | No                        |
+| `views/rysiai/index.ejs`     | View   | HTML shell; `#node-details` wrapper; `RYSIAI_CONFIG = { entityType, entityId }` inline script                                                                                          | —                         |
 
 **Visual identity — node colours and icons:**
 
@@ -436,9 +483,7 @@ graph TD
 | `ContractEntity`     | `contract`       | `#10b981` | HistoryEdu                            | `Contract`                                         |
 | `ProcurementEntity`  | `procurement`    | `#8b5cf6` | Gavel                                 | `Procurement`                                      |
 
-`ProcurementEntity` uses **purple** (`#8b5cf6`) — distinct from all current node colours. The MUI
-`Gavel` icon path must be added to `MUI_ICON_PATHS` in `src/rysiai/icons.js`, and `getIconKey`
-must return `'Procurement'` for procurement nodes. `EDGE_COLOR` must add entries for:
+`ProcurementEntity` uses **purple** (`#8b5cf6`) — distinct from all current node colours. `EDGE_COLOR` entries:
 
 | Edge type      | Color     | Meaning                                    |
 |----------------|-----------|--------------------------------------------|
@@ -573,10 +618,126 @@ Person nodes keep a fixed `size: 8`. `edgeWeight` is mirrored as a local helper 
 
 ---
 
+## URL Hash State Management
+
+The URL hash encodes the active filter and any additionally-expanded entities so that the graph state
+can be bookmarked and shared. Hash is **read on page load** (`applyFilterFromHash`) and **written
+after every filter or expand change** (`updateHashFromFilter`).
+
+### Filter ID ↔ Edge type mapping
+
+Each edge type is represented by a single ASCII character in the hash string:
+
+| `data-edge-types`         | Label                  | Filter char |
+|:--------------------------|:-----------------------|:------------|
+| `Director`                | Direktorius / vadovas  | `D`         |
+| `Shareholder`             | Akcininkas             | `S`         |
+| `Official`                | Pareigūnas / oficialus | `O`         |
+| `Employment`              | Darbuotojas            | `E`         |
+| `Spouse`                  | Sutuoktinis            | `U`         |
+| `ContractSmall`           | Sutartis (maža)        | `L`         |
+| `ContractMedium`          | Sutartis (vidutinė)    | `M`         |
+| `ContractLarge`           | Sutartis (didelė)      | `G`         |
+| `Procurement`             | Pirkimo skelbimas      | `P`         |
+| `Award`                   | Pirkimo laimėtojas     | `A`         |
+| `Bidder`                  | Pirkimo dalyvis        | `B`         |
+| `ContractProcurementLink` | Sutartis → pirkimas    | `C`         |
+
+`filter=DSO` means Director + Shareholder + Official are **visible**; all other edge types are
+**hidden** for that node. A missing `filter` key means the node's visibility state is left at its
+default (from `HIDDEN_BY_DEFAULT`).
+
+### Hash format
+
+```
+#filter=<chars>[&<entityType>_<N>=<entityId>&filter_<N>=<chars>...]
+```
+
+- `filter` — comma-free string of filter chars for the **primary** (initial) node.
+- Additional expanded nodes use `<entityType>_<N>=<entityId>` keys where:
+    - `<entityType>` ∈ `{ asmuo, sutartis, viesiejiPirkimai }`
+    - `<N>` is a positive integer that also keys `filter_<N>` for that node's filter state
+    - `<entityId>` is the entity's database ID
+
+Examples:
+
+```
+/rysiai/asmuo/110078991#filter=DSO
+/rysiai/asmuo/110078991#filter=DSO&asmuo_2=110078992&filter_2=LMG
+/rysiai/asmuo/110078991#filter=DSOELM&sutartis_2=2008083561&filter_2=LG&asmuo_3=110055123&filter_3=DS
+```
+
+### `src/rysiai/hash-state.js`
+
+Pure module — no DOM reads; only writes `window.location.hash`.
+
+```js
+// Maps filter char → edge type name
+export const FILTER_CHAR_MAP = {
+    D: 'Director', S: 'Shareholder', O: 'Official', E: 'Employment',
+    U: 'Spouse', L: 'ContractSmall', M: 'ContractMedium', G: 'ContractLarge',
+    P: 'Procurement', A: 'Award', B: 'Bidder', C: 'ContractProcurementLink'
+};
+
+// Maps edge type name → filter char
+export const FILTER_ID_MAP = Object.fromEntries(Object.entries(FILTER_CHAR_MAP).map(([k, v]) => [v, k]));
+```
+
+#### `applyFilterFromHash(legendState, primaryNodeId)`
+
+1. Parse `window.location.hash` — strip leading `#`, split on `&`, build a `Map<key, value>`.
+2. If `filter` key is present: for `primaryNodeId`, call `legendState.initNode(primaryNodeId)` then
+   set each edge type visible/hidden according to whether its char appears in the `filter` value.
+   All chars listed → **visible**; all chars not listed → **hidden**.
+3. For each `<entityType>_<N>` key: note the entity for deferred expansion (see below).
+4. For each `filter_<N>` key paired with a loaded node: apply the same char-based visibility to that
+   node's `legendState` entry once the node exists in `dataGraph`.
+5. Returns `{ additionalEntities: Array<{ entityType, entityId, filterChars, entityNumber }> }` so
+   `rysiai-app.js` can load them sequentially after the primary entity.
+
+#### `updateHashFromFilter(legendState, dataGraph)`
+
+1. Collect all node IDs in `dataGraph` that have an explicit `legendState` entry (`hasNodeConfig`).
+2. For each configured node, derive its filter string: join the chars of all visible edge types.
+3. For the primary node (the one marked `isRoot: true` in `dataGraph`), emit `filter=<chars>`.
+4. For each additional expanded node, determine its `entityType` from `attrs.entityType` and its
+   `entityId` from the relevant attribute (`jarKodas`, `sutartiesUnikalusId`, or `pirkimoId`). Assign
+   ascending `N` values starting from `2`. Emit `<entityType>_<N>=<entityId>&filter_<N>=<chars>`.
+5. Set `window.location.hash = '#' + assembled` (no page navigation; replaces fragment only).
+   If all nodes are at default (nothing configured), set hash to empty string.
+
+### Integration in `rysiai-app.js`
+
+```
+DOMContentLoaded
+  → loadOrg/loadSutartis/loadPirkimas (initial entity)
+  → selectNode(primaryNodeId)
+  → legendState.initNode(primaryNodeId)
+  → applyFilterFromHash(legendState, primaryNodeId)
+      → if additionalEntities: load each sequentially, then apply their filter_N
+  → rebuildAndRefresh()
+
+On legend checkbox change:
+  → legendState mutated
+  → rebuildAndRefresh()
+  → updateHashFromFilter(legendState, dataGraph)
+
+On node expand (double-click):
+  → _expand(...)
+  → rebuildAndRefresh()
+  → updateHashFromFilter(legendState, dataGraph)
+
+On node collapse:
+  → collapseGraphData(...)
+  → rebuildAndRefresh()
+  → updateHashFromFilter(legendState, dataGraph)
+```
+
+---
+
 ## Out of Scope
 
 - Risk score colouring of nodes/edges
-- Saving / sharing graph state via URL
 - Toolbar "Balance" button triggering a full ForceAtlas2 pass — v2
 - Dashed/dotted edge rendering (Sigma.js has no built-in dash program; thin colored solid lines are used instead — a
   custom renderer can be added in a future phase)
@@ -609,7 +770,74 @@ Person nodes keep a fixed `size: 8`. `edgeWeight` is mirrored as a local helper 
    thread for large graphs. For large graphs (>200 nodes) a Web Worker is recommended. For v1,
    synchronous with a capped iteration count is acceptable.
 
-# URL Hash State Management
+---
 
-`rysiai/` routing will read existing URL hash on page load and apply it to the graph state.
+### Phase 19 — Typed URL routes
 
+- [ ] **19.1 — Server: 3 new page routes** in `routes/rysiai.js`:
+    - `GET /rysiai/asmuo/:jarKodas` — validates numeric jarKodas; renders EJS with
+      `{ entityType: 'asmuo', entityId: jarKodas }`
+    - `GET /rysiai/sutartis/:sutartiesUnikalusId` — validates numeric id; renders EJS with
+      `{ entityType: 'sutartis', entityId }`
+    - `GET /rysiai/viesiejiPirkimai/:pirkimoId` — validates numeric id; renders EJS with
+      `{ entityType: 'viesiejiPirkimai', entityId }`
+    - All 3 registered **before** the legacy `/:jarKodas` wildcard.
+
+- [ ] **19.2 — Server: `expandSutartis(sutartiesUnikalusId)`** in `modules/rysiai/expand.js`:
+    - Query `sutartys JOIN jarCsv` for the single row by `sutartiesUnikalusId`.
+    - Return `ContractEntity` node (`isRoot: true`, `expanded: true`) + buyer `OrganizationEntity`
+      stub + seller `OrganizationEntity` stub + `Order` + `Delivery` edges.
+    - Expose as `GET /rysiai/expand-sutartis/:sutartiesUnikalusId`.
+
+- [ ] **19.3 — Server: `expandPirkimas(pirkimoId)`** in `modules/rysiai/expand.js`:
+    - Query `viesiejiPirkimai JOIN jarCsv` for the procurement row + buyer org name.
+    - Reuse `expandProcurement(pirkimoId)` for winner/bidder stubs.
+    - Return `ProcurementEntity` node (`isRoot: true`, `expanded: true`) + buyer
+      `OrganizationEntity` stub + `Procurement` edge + all winner/bidder stubs from
+      `expandProcurement`.
+    - Expose as `GET /rysiai/expand-pirkimas/:pirkimoId`.
+
+- [ ] **19.4 — View: `RYSIAI_CONFIG` change** in `views/rysiai/index.ejs`:
+    - Replace `{ jarKodas }` with `{ entityType, entityId }`.
+    - Template variables passed from all 4 page routes (asmuo + 3 new).
+
+- [ ] **19.5 — Client: entity-type dispatch** in `src/rysiai-app.js`:
+    - Read `window.RYSIAI_CONFIG.entityType` + `entityId`.
+    - Route to `ui.loadOrg`, `ui.loadSutartis`, or `ui.loadPirkimas` accordingly.
+    - Select the correct initial node ID after load.
+
+- [ ] **19.6 — Client: `loadSutartis` and `loadPirkimas`** in `src/rysiai/expand-ui.js`:
+    - `loadSutartis(sutartiesUnikalusId)` — fetches `/rysiai/expand-sutartis/:id`, merges,
+      marks root as selected.
+    - `loadPirkimas(pirkimoId)` — fetches `/rysiai/expand-pirkimas/:id`, merges, marks root
+      as selected.
+    - Both exposed on the return value of `createExpandUI`.
+
+---
+
+### Phase 20 — URL hash filter state
+
+- [ ] **20.1 — `src/rysiai/hash-state.js`** — new pure module:
+    - Export `FILTER_CHAR_MAP` and `FILTER_ID_MAP` constants (all 12 edge types).
+    - `applyFilterFromHash(legendState, primaryNodeId)` — parse hash, apply per-node visibility,
+      return `additionalEntities` array.
+    - `updateHashFromFilter(legendState, dataGraph)` — collect configured nodes, build and set
+      `window.location.hash`.
+
+- [ ] **20.2 — `rysiai-app.js` integration**:
+    - After initial load + `selectNode`, call `applyFilterFromHash` for the primary node.
+    - For each `additionalEntities` item returned, call the appropriate `ui.load*` then apply
+      `filter_N` to that node's legend state.
+    - Call `updateHashFromFilter` at the end of every: legend checkbox change, node expand,
+      node collapse.
+
+- [ ] **20.3 — Legend checkbox wiring**: `legend.js` / `expand-ui.js` must invoke
+  `updateHashFromFilter` after `rebuildAndRefresh` in the checkbox change handler and after
+  every expand/collapse completion.
+
+- [ ] **20.4 — Tests `test/rysiai/hash-state.test.js`**:
+    - `applyFilterFromHash` with `filter=DSO` sets Director/Shareholder/Official visible,
+      hides the rest.
+    - `applyFilterFromHash` with no hash leaves state at defaults.
+    - `updateHashFromFilter` round-trips: apply → collect → assert hash string.
+    - Multi-entity hash: `asmuo_2=...&filter_2=LMG` parsed and returned in `additionalEntities`.
