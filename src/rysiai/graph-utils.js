@@ -112,12 +112,11 @@ export function mergeGraphElements(graph, getNodePos, data, fromNodeId, rootNode
         const attrs = Object.assign({}, e.attributes || {});
         // Rename semantic 'type' → 'edgeType' so Sigma doesn't treat it as a renderer program key.
         if (attrs.type) { attrs.edgeType = attrs.type; delete attrs.type; }
+        if ((attrs.edgeType === 'Order' || attrs.edgeType === 'Delivery') && attrs.size != null) {
+            attrs.edgeType = attrs.size >= 6 ? 'ContractLarge' : attrs.size >= 3 ? 'ContractMedium' : 'ContractSmall';
+        }
         attrs.color = EDGE_COLOR[attrs.edgeType] || '#d1d5db';
         attrs.expandedBy = fromNodeId ? new Set([fromNodeId]) : new Set();
-        // Assign size category for contract edges so legend can filter by size.
-        if ((attrs.edgeType === 'Order' || attrs.edgeType === 'Delivery') && attrs.size != null) {
-            attrs.contractSizeCategory = attrs.size >= 6 ? 'large' : attrs.size >= 3 ? 'medium' : 'small';
-        }
         graph.addEdgeWithKey(e.id, e.source, e.target, attrs);
     });
 
@@ -181,7 +180,7 @@ export function rebuildViewGraph(dataGraph, viewGraph, isEdgeHidden) {
     expandedAnchors.forEach((id) => { visible.add(id); });
     bridgeNodes.forEach((id) => { visible.add(id); });
     dataGraph.forEachEdge((edgeId, attrs, source, target) => {
-        if (!isEdgeHidden(source, target, attrs.edgeType, attrs.contractSizeCategory ?? null)) {
+        if (!isEdgeHidden(source, target, attrs.edgeType)) {
             visible.add(source);
             visible.add(target);
         }
@@ -217,13 +216,13 @@ export function rebuildViewGraph(dataGraph, viewGraph, isEdgeHidden) {
     // Remove hidden-type edges from viewGraph (bridge edges are exempt)
     const edgesToRemove = [];
     viewGraph.forEachEdge((edgeId, attrs, source, target) => {
-        if (!bridgeEdges.has(edgeId) && isEdgeHidden(source, target, attrs.edgeType, attrs.contractSizeCategory ?? null)) edgesToRemove.push(edgeId);
+        if (!bridgeEdges.has(edgeId) && isEdgeHidden(source, target, attrs.edgeType)) edgesToRemove.push(edgeId);
     });
     edgesToRemove.forEach((id) => { viewGraph.dropEdge(id); });
 
     // Add visible edges from dataGraph that are not yet in viewGraph (bridge edges always pass)
     dataGraph.forEachEdge((edgeId, attrs, source, target) => {
-        if (!bridgeEdges.has(edgeId) && isEdgeHidden(source, target, attrs.edgeType, attrs.contractSizeCategory ?? null)) return;
+        if (!bridgeEdges.has(edgeId) && isEdgeHidden(source, target, attrs.edgeType)) return;
         if (!viewGraph.hasNode(source) || !viewGraph.hasNode(target)) return;
         if (viewGraph.hasEdge(edgeId)) return;
         viewGraph.addEdgeWithKey(edgeId, source, target, Object.assign({}, attrs));
@@ -286,22 +285,20 @@ export function collapseGraphData(dataGraph, nodeId) {
 }
 
 /**
- * Counts edges incident to nodeId grouped by edgeType and by contractSizeCategory.
+ * Counts edges incident to nodeId grouped by edgeType.
  * Used by the legend to show relationship counts and hide zero-count rows.
  *
  * @param {Graph}  graph
  * @param {string} nodeId
- * @returns {{ byType: Map<string, number>, bySize: Map<string, number> }}
+ * @returns {{ byType: Map<string, number> }}
  */
 export function computeEdgeCounts(graph, nodeId) {
     const byType = new Map();
-    const bySize = new Map();
-    if (!graph.hasNode(nodeId)) return { byType, bySize };
+    if (!graph.hasNode(nodeId)) return { byType };
     graph.forEachEdge(nodeId, (_edgeId, attrs) => {
         if (attrs.edgeType) byType.set(attrs.edgeType, (byType.get(attrs.edgeType) || 0) + 1);
-        if (attrs.contractSizeCategory) bySize.set(attrs.contractSizeCategory, (bySize.get(attrs.contractSizeCategory) || 0) + 1);
     });
-    return { byType, bySize };
+    return { byType };
 }
 
 /**

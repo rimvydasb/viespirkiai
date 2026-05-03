@@ -15,17 +15,18 @@ export const NODE_COLOR = {
 };
 
 export const EDGE_COLOR = {
-    Director:     '#1d4ed8',
-    Shareholder:  '#7c3aed',
-    Official:     '#0891b2',
-    Employment:   '#6b7280',
-    Spouse:       '#f59e0b',
-    Order:        '#10b981',
-    Delivery:     '#10b981',
-    Procurement:  '#8b5cf6',
-    Award:        '#22c55e',
-    Bid:          '#ef4444',
-    ContractLink: '#94a3b8',
+    Director:                '#1d4ed8',
+    Shareholder:             '#7c3aed',
+    Official:                '#0891b2',
+    Employment:              '#6b7280',
+    Spouse:                  '#f59e0b',
+    ContractSmall:           '#10b981',
+    ContractMedium:          '#10b981',
+    ContractLarge:           '#10b981',
+    Procurement:             '#8b5cf6',
+    Award:                   '#22c55e',
+    Bidder:                  '#ef4444',
+    ContractProcurementLink: '#94a3b8',
 };
 
 // Edge types hidden on initial render (legend checkboxes start unchecked).

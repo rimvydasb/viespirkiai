@@ -302,13 +302,13 @@ export function createExpandUI({ dataGraph, viewGraph, renderer, statusEl, loadi
     function loadContract(pirkimoNumeris, contractNodeId) {
         const procId = 'procurement:' + pirkimoNumeris;
 
-        const createContractLink = () => {
-            const linkEdgeId = 'edge:' + contractNodeId + ':' + procId + ':ContractLink';
+        const createContractProcurementLink = () => {
+            const linkEdgeId = 'edge:' + contractNodeId + ':' + procId + ':ContractProcurementLink';
             if (dataGraph.hasNode(contractNodeId) && dataGraph.hasNode(procId) && !dataGraph.hasEdge(linkEdgeId)) {
                 dataGraph.addEdgeWithKey(linkEdgeId, contractNodeId, procId, {
-                    edgeType: 'ContractLink',
+                    edgeType: 'ContractProcurementLink',
                     label: '',
-                    color: EDGE_COLOR['ContractLink'] || '#94a3b8',
+                    color: EDGE_COLOR['ContractProcurementLink'] || '#94a3b8',
                     size: 1,
                     forceLabel: false,
                     expandedBy: new Set([contractNodeId]),
@@ -318,7 +318,7 @@ export function createExpandUI({ dataGraph, viewGraph, renderer, statusEl, loadi
 
         // If procurement already expanded, just add the link and redraw
         if (dataGraph.hasNode(procId) && dataGraph.getNodeAttribute(procId, 'expanded')) {
-            createContractLink();
+            createContractProcurementLink();
             rebuildAndRefresh();
             return;
         }
@@ -327,7 +327,7 @@ export function createExpandUI({ dataGraph, viewGraph, renderer, statusEl, loadi
         // enabling full cleanup when the contract is collapsed.
         return _expand(procId, '/rysiai/expand-contract/' + encodeURIComponent(pirkimoNumeris), (nodeId) => {
             markExpanded(nodeId);
-            createContractLink();
+            createContractProcurementLink();
         }, contractNodeId);
     }
 

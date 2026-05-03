@@ -45,7 +45,7 @@ var renderer = new Sigma(viewGraph, container, {
 
 var ui = createExpandUI({ dataGraph, viewGraph, renderer, statusEl, loadingEl, forceAtlas2, noverlap, animateNodes, legendState, nodeDetails });
 
-// Canvas overlay for dashed edges (ContractLink, Award, Bid)
+// Canvas overlay for dashed edges (ContractProcurementLink, Award, Bidder)
 var dashedOverlay = document.createElement('canvas');
 dashedOverlay.style.position = 'absolute';
 dashedOverlay.style.top = '0';
@@ -67,7 +67,7 @@ window.addEventListener('resize', resizeDashedOverlay);
 renderer.on('afterRender', function () {
     dashedCtx.clearRect(0, 0, dashedOverlay.width, dashedOverlay.height);
 
-    var dashedEdgeTypes = { 'ContractLink': true, 'Award': true, 'Bid': true };
+    var dashedEdgeTypes = { 'ContractProcurementLink': true, 'Award': true, 'Bidder': true };
     var camera = renderer.getCamera();
 
     viewGraph.forEachEdge(function (edgeId, attrs, source, target, sourceAttrs, targetAttrs) {
