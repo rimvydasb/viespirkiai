@@ -56,4 +56,7 @@ public/dist/tailwind.css.map
 quickwit/qwdata
 
 .idea
+.claude
+.github
+.docs
 public/dist
