@@ -60,3 +60,5 @@ quickwit/qwdata
 .github
 .docs
 public/dist
+AGENTS.md
+CLAUDE.md
