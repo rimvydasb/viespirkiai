@@ -135,8 +135,14 @@ document.addEventListener('DOMContentLoaded', async function () {
         }
         if (extraNodeId && extra.filterChars) {
             applyFilterChars(legendState, extraNodeId, extra.filterChars);
-            ui.rebuildAndRefresh();
         }
+    }
+
+    // One final consolidated layout pass after all hash-restored entities are loaded.
+    // Without this, each entity's nodes are placed by an intermediate layout that doesn't
+    // yet know about the full graph — causing procurement nodes from different orgs to overlap.
+    if (additionalEntities.length > 0) {
+        ui.rebuildAndRefresh();
     }
 
     syncHash();

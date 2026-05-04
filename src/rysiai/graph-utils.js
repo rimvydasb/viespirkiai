@@ -175,16 +175,28 @@ export function rebuildViewGraph(dataGraph, viewGraph, isEdgeHidden) {
         }
     });
 
-    // Compute the set of nodes that should be visible
-    const visible = new Set();
-    expandedAnchors.forEach((id) => { visible.add(id); });
-    bridgeNodes.forEach((id) => { visible.add(id); });
-    dataGraph.forEachEdge((edgeId, attrs, source, target) => {
-        if (!isEdgeHidden(source, target, attrs.edgeType)) {
-            visible.add(source);
-            visible.add(target);
-        }
-    });
+    // BFS from expanded anchors (and bridge nodes) through visible edges.
+    // A node is only shown when reachable from an anchor or bridge via at least one visible path.
+    // Bridge edges bypass isEdgeHidden so bridge contracts remain traversable even when their
+    // edge type is filtered out.
+    const visible = new Set(expandedAnchors);
+    bridgeNodes.forEach((id) => visible.add(id));
+
+    const queue = [...expandedAnchors, ...bridgeNodes];
+    const queued = new Set(queue);
+    while (queue.length > 0) {
+        const nodeId = queue.shift();
+        if (!dataGraph.hasNode(nodeId)) continue;
+        dataGraph.forEachEdge(nodeId, (edgeId, attrs, source, target) => {
+            if (!bridgeEdges.has(edgeId) && isEdgeHidden(source, target, attrs.edgeType)) return;
+            const neighbor = source === nodeId ? target : source;
+            if (!queued.has(neighbor)) {
+                queued.add(neighbor);
+                visible.add(neighbor);
+                queue.push(neighbor);
+            }
+        });
+    }
 
     // Drop invisible nodes (graphology auto-drops their incident edges)
     const toRemove = [];

@@ -480,6 +480,86 @@ describe('rebuildViewGraph', () => {
         assert.ok(!viewGraph.hasEdge('e:person:x:org:A:Director'), 'Director edge to OrgA must stay hidden');
         assert.ok(viewGraph.hasEdge('e:person:x:org:B:Director'), 'Director edge to OrgB must be visible');
     });
+
+    // ── Hanging node / path reachability ──────────────────────────────────────
+    // Nodes are only shown when reachable from an expanded anchor via visible edges.
+    // A visible edge between two non-anchor nodes does NOT make them visible if neither
+    // has a visible path back to an anchor (the "hanging node" bug fixed by BFS).
+
+    it('HANGING: node whose only anchor-link is hidden is excluded even with other visible edges', () => {
+        addOrg(dataGraph, 'org:A', true);
+        addPerson(dataGraph, 'person:x');
+        addOrg(dataGraph, 'org:B');
+        // person:x connects to anchor via Employment (hidden) only
+        addEdge(dataGraph, 'person:x', 'org:A', 'Employment');
+        // person:x has a visible edge to a stub org — old code would show both; new code should not
+        addEdge(dataGraph, 'person:x', 'org:B', 'Director');
+
+        rebuildViewGraph(dataGraph, viewGraph, mkHidden(['Employment']));
+
+        assert.ok(!viewGraph.hasNode('person:x'), 'person:x not reachable from anchor via visible edges');
+        assert.ok(!viewGraph.hasNode('org:B'), 'org:B only reachable through the hanging person:x');
+        assert.ok(viewGraph.hasNode('org:A'), 'anchor stays');
+    });
+
+    it('HANGING: multi-hop chain cut at first hop excludes all downstream nodes', () => {
+        addOrg(dataGraph, 'org:A', true);
+        addPerson(dataGraph, 'person:x');
+        addOrg(dataGraph, 'org:B');
+        addContract(dataGraph, 'contract:c');
+        addEdge(dataGraph, 'person:x', 'org:A', 'Employment');    // cut — hidden
+        addEdge(dataGraph, 'person:x', 'org:B', 'Director');       // visible but unreachable
+        addEdge(dataGraph, 'org:B', 'contract:c', 'ContractSmall'); // visible but unreachable
+
+        rebuildViewGraph(dataGraph, viewGraph, mkHidden(['Employment']));
+
+        assert.ok(!viewGraph.hasNode('person:x'), 'person:x cut off');
+        assert.ok(!viewGraph.hasNode('org:B'), 'org:B only reachable through person:x');
+        assert.ok(!viewGraph.hasNode('contract:c'), 'contract:c only reachable through org:B');
+        assert.ok(viewGraph.hasNode('org:A'), 'anchor stays');
+    });
+
+    it('HANGING: node reachable via two paths — hiding one keeps node visible via the other', () => {
+        addOrg(dataGraph, 'org:A', true);
+        addPerson(dataGraph, 'person:x');
+        // Two edges from person:x to anchor: one visible, one hidden
+        addEdge(dataGraph, 'person:x', 'org:A', 'Director');    // visible
+        addEdge(dataGraph, 'person:x', 'org:A', 'Employment');  // hidden
+
+        rebuildViewGraph(dataGraph, viewGraph, mkHidden(['Employment']));
+
+        assert.ok(viewGraph.hasNode('person:x'), 'person:x visible via the Director path');
+        assert.ok(viewGraph.hasEdge('e:person:x:org:A:Director'), 'Director edge present');
+        assert.ok(!viewGraph.hasEdge('e:person:x:org:A:Employment'), 'Employment edge absent');
+    });
+
+    it('HANGING: hiding contract edges removes both contract and supplier stub', () => {
+        addOrg(dataGraph, 'org:A', true);
+        addContract(dataGraph, 'contract:x');
+        addOrg(dataGraph, 'org:B');
+        addEdge(dataGraph, 'org:A', 'contract:x', 'ContractSmall');
+        addEdge(dataGraph, 'contract:x', 'org:B', 'ContractSmall');
+
+        rebuildViewGraph(dataGraph, viewGraph, mkHidden(['ContractSmall']));
+
+        assert.ok(!viewGraph.hasNode('contract:x'), 'contract hidden — no visible path from anchor');
+        assert.ok(!viewGraph.hasNode('org:B'), 'supplier stub hidden — only reachable via contract');
+        assert.ok(viewGraph.hasNode('org:A'), 'buyer anchor stays');
+    });
+
+    it('HANGING: procurement node shown only when its Procurement edge is visible', () => {
+        addOrg(dataGraph, 'org:A', true);
+        const procId = 'procurement:1';
+        dataGraph.addNode(procId, { entityType: ENTITY_TYPE.Procurement, expanded: false, x: 0, y: 0, size: 8, color: '#8b5cf6', label: 'Proc' });
+        addEdge(dataGraph, 'org:A', procId, 'Procurement');
+
+        rebuildViewGraph(dataGraph, viewGraph, mkHidden(['Procurement']));
+        assert.ok(!viewGraph.hasNode(procId), 'procurement node hidden when Procurement edge is hidden');
+
+        const viewGraph2 = new Graph({ type: 'directed', multi: true });
+        rebuildViewGraph(dataGraph, viewGraph2, () => false);
+        assert.ok(viewGraph2.hasNode(procId), 'procurement node visible when Procurement edge is visible');
+    });
 });
 
 // ── syncPositionsToData ───────────────────────────────────────────────────────
