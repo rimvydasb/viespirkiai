@@ -20,28 +20,6 @@ rysiaiRouter.get('/rysiai/asmuo/:jarKodas', (req, res, next) => {
     });
 });
 
-rysiaiRouter.get('/rysiai/sutartis/:sutartiesUnikalusId', (req, res, next) => {
-    const { sutartiesUnikalusId } = req.params;
-    if (!/^\d+$/.test(sutartiesUnikalusId)) return next();
-    res.renderCompiled('rysiai/index', {
-        req,
-        entityType: 'sutartis',
-        entityId: sutartiesUnikalusId,
-        customHead: config.customHead || '',
-    });
-});
-
-rysiaiRouter.get('/rysiai/viesiejiPirkimai/:pirkimoId', (req, res, next) => {
-    const { pirkimoId } = req.params;
-    if (!/^\d+$/.test(pirkimoId)) return next();
-    res.renderCompiled('rysiai/index', {
-        req,
-        entityType: 'viesiejiPirkimai',
-        entityId: pirkimoId,
-        customHead: config.customHead || '',
-    });
-});
-
 // ── JSON API endpoints ────────────────────────────────────────────────────────
 
 rysiaiRouter.get('/rysiai/expand/:jarKodas', async (req, res) => {
