@@ -7,7 +7,11 @@ const rysiaiRouter = express.Router();
 
 // ── Static page routes (must precede wildcard segments) ───────────────────────
 
-rysiaiRouter.get('/rysiai/', (req, res, next) => next());
+rysiaiRouter.get('/rysiai', (req, res) => {
+    res.renderCompiled('rysiai/landing', { req, customHead: config.customHead || '' });
+});
+
+rysiaiRouter.get('/rysiai/', (req, res) => res.redirect('/rysiai'));
 
 rysiaiRouter.get('/rysiai/asmuo/:jarKodas', (req, res, next) => {
     const { jarKodas } = req.params;
