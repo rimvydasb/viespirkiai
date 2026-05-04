@@ -97,9 +97,9 @@ export class NodeDetails {
     /**
      * Renders the details panel for the selected node and updates the legend.
      * @param {string} nodeId
-     * @param {object} attrs  Node attributes from viewGraph
+     * @param {object} attrs  Node attributes from dataGraph
      * @param {object} handlers  { onExpand?: () => void, onCollapse?: () => void }
-     * @param {{ byType: Map<string,number>, bySize: Map<string,number> }|null} counts
+     * @param {Map<string,number>|null} counts  edge counts from dataGraph, or null for non-configurable nodes
      */
     showForNode(nodeId, attrs, handlers = {}, counts = null) {
         const el = this._getPanel();

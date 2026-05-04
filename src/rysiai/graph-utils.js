@@ -299,18 +299,19 @@ export function collapseGraphData(dataGraph, nodeId) {
 /**
  * Counts edges incident to nodeId grouped by edgeType.
  * Used by the legend to show relationship counts and hide zero-count rows.
+ * Always pass dataGraph (not viewGraph) so counts reflect unfiltered data.
  *
  * @param {Graph}  graph
  * @param {string} nodeId
- * @returns {{ byType: Map<string, number> }}
+ * @returns {Map<string, number>}
  */
 export function computeEdgeCounts(graph, nodeId) {
     const byType = new Map();
-    if (!graph.hasNode(nodeId)) return { byType };
+    if (!graph.hasNode(nodeId)) return byType;
     graph.forEachEdge(nodeId, (_edgeId, attrs) => {
         if (attrs.edgeType) byType.set(attrs.edgeType, (byType.get(attrs.edgeType) || 0) + 1);
     });
-    return { byType };
+    return byType;
 }
 
 /**

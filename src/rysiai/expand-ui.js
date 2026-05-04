@@ -71,7 +71,7 @@ export function createExpandUI({ dataGraph, viewGraph, renderer, statusEl, loadi
     }
 
     function _showNodePanel(id, attrs, handlers) {
-        const counts = isConfigurableNode(attrs) ? computeEdgeCounts(viewGraph, id) : null;
+        const counts = isConfigurableNode(attrs) ? computeEdgeCounts(dataGraph, id) : null;
         nodeDetails.showForNode(id, attrs, handlers, counts);
     }
 
@@ -80,7 +80,7 @@ export function createExpandUI({ dataGraph, viewGraph, renderer, statusEl, loadi
     function refreshSelectedNodePanel() {
         if (!selectedNodeId || !viewGraph.hasNode(selectedNodeId)) return;
         const id = selectedNodeId;
-        const attrs = viewGraph.getNodeAttributes(id);
+        const attrs = dataGraph.getNodeAttributes(id);
         _showNodePanel(id, attrs, buildHandlers(id, attrs));
     }
 
@@ -89,7 +89,7 @@ export function createExpandUI({ dataGraph, viewGraph, renderer, statusEl, loadi
         selectedNodeId = id;
         setSelection(id, true);
 
-        const attrs = viewGraph.hasNode(id) ? viewGraph.getNodeAttributes(id) : {};
+        const attrs = dataGraph.hasNode(id) ? dataGraph.getNodeAttributes(id) : {};
         const handlers = buildHandlers(id, attrs);
         if (isConfigurableNode(attrs)) legendState.initNode(id);
         _showNodePanel(id, attrs, handlers);
@@ -273,7 +273,7 @@ export function createExpandUI({ dataGraph, viewGraph, renderer, statusEl, loadi
             if (viewGraph.hasNode(nodeId)) {
                 // Node still visible (has edges from other expansions) — update panel to Rodyti ryšius
                 setSelection(nodeId, true);
-                const updatedAttrs = viewGraph.getNodeAttributes(nodeId);
+                const updatedAttrs = dataGraph.getNodeAttributes(nodeId);
                 _showNodePanel(nodeId, updatedAttrs, { onExpand: () => _triggerExpand(nodeId, updatedAttrs) });
             } else {
                 // Node disappeared — clear selection

@@ -17,10 +17,10 @@ export class NodeLegend {
      * Updates legend visibility, checkbox state, counts, and action button.
      * Legend is shown when nodeId is non-null AND expanded is true.
      *
-     * @param {string|null}   nodeId
-     * @param {boolean}       expanded
-     * @param {object}        [handlers]  { onExpand?, onCollapse? }
-     * @param {{ byType: Map<string,number> }|null} [counts]
+     * @param {string|null}            nodeId
+     * @param {boolean}                expanded
+     * @param {object}                 [handlers]  { onExpand?, onCollapse? }
+     * @param {Map<string,number>|null} [counts]    edge counts from dataGraph
      */
     updateForNode(nodeId, expanded, handlers = {}, counts = null) {
         const legendEl = document.getElementById('rysiai-legend');
@@ -38,7 +38,7 @@ export class NodeLegend {
             cb.checked = types.every((t) => this._state.isTypeVisible(nodeId, t.trim()));
             const labelEl = cb.closest('label');
             if (counts) {
-                const count = types.reduce((sum, t) => sum + (counts.byType.get(t.trim()) || 0), 0);
+                const count = types.reduce((sum, t) => sum + (counts.get(t.trim()) || 0), 0);
                 if (labelEl) labelEl.hidden = count === 0;
                 const countEl = labelEl ? labelEl.querySelector('.vl-count') : null;
                 if (countEl) countEl.textContent = count > 0 ? '(' + count + ')' : '';

@@ -128,6 +128,11 @@ document.addEventListener('DOMContentLoaded', async function () {
         } else if (extra.entityType === 'sutartis') {
             await ui.loadSutartis(extra.entityId);
             extraNodeId = 'contract:' + extra.entityId;
+            // Mirror _triggerExpand: also load procurement if the contract has one
+            if (dataGraph.hasNode(extraNodeId)) {
+                var pirkimoNumeris = dataGraph.getNodeAttribute(extraNodeId, 'pirkimoNumeris');
+                if (pirkimoNumeris) await ui.loadContract(pirkimoNumeris, extraNodeId);
+            }
         } else if (extra.entityType === 'viesiejiPirkimai') {
             await ui.loadPirkimas(extra.entityId);
             extraNodeId = 'procurement:' + extra.entityId;
