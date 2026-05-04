@@ -18,9 +18,9 @@ import { isConfigurableNode, isOrgNode, isPersonNode, isContractNode, isProcurem
  *   legendState:  LegendState,
  *   nodeDetails:  NodeDetails,
  * }} deps
- * @returns {{ loadOrg, loadContract, rebuildAndRefresh, getSelectedNodeId, selectNode }}
+ * @returns {{ loadOrg, loadSutartis, loadPirkimas, loadContract, rebuildAndRefresh, getSelectedNodeId, selectNode }}
  */
-export function createExpandUI({ dataGraph, viewGraph, renderer, statusEl, loadingEl, forceAtlas2, noverlap, animateNodes, legendState, nodeDetails }) {
+export function createExpandUI({ dataGraph, viewGraph, renderer, statusEl, loadingEl, forceAtlas2, noverlap, animateNodes, legendState, nodeDetails, onStateChange = null }) {
     const expandingNodes = new Set();
     let cancelAnimation = null;
     let selectedNodeId = null;
@@ -64,6 +64,7 @@ export function createExpandUI({ dataGraph, viewGraph, renderer, statusEl, loadi
     }
 
     function buildHandlers(id, attrs) {
+        if (attrs.isRoot) return {};
         if (attrs.expanded) return { onCollapse: () => collapseNode(id) };
         if (isExpandableNode(attrs)) return { onExpand: () => _triggerExpand(id, attrs) };
         return {};
@@ -168,6 +169,7 @@ export function createExpandUI({ dataGraph, viewGraph, renderer, statusEl, loadi
                 renderer.refresh();
             }
 
+            onStateChange?.();
             // Refresh panel so button switches from Rodyti → Slėpti ryšius
             refreshSelectedNodePanel();
         } catch (err) {
@@ -277,6 +279,7 @@ export function createExpandUI({ dataGraph, viewGraph, renderer, statusEl, loadi
                 selectedNodeId = null;
                 nodeDetails.hide();
             }
+            onStateChange?.();
             renderer.refresh();
         };
 
@@ -331,6 +334,16 @@ export function createExpandUI({ dataGraph, viewGraph, renderer, statusEl, loadi
         }, contractNodeId);
     }
 
+    function loadSutartis(sutartiesUnikalusId) {
+        const id = 'contract:' + sutartiesUnikalusId;
+        return _expand(id, '/rysiai/expand-sutartis/' + encodeURIComponent(sutartiesUnikalusId), markExpanded, id, id);
+    }
+
+    function loadPirkimas(pirkimoId) {
+        const id = 'procurement:' + pirkimoId;
+        return _expand(id, '/rysiai/expand-pirkimas/' + encodeURIComponent(pirkimoId), markExpanded, id, id);
+    }
+
     renderer.on('clickNode', (event) => {
         const nodeId = event.node;
         // No-op on re-click: Sigma fires clickNode twice before doubleClickNode.
@@ -347,5 +360,5 @@ export function createExpandUI({ dataGraph, viewGraph, renderer, statusEl, loadi
 
     renderer.on('clickStage', deselectAll);
 
-    return { loadOrg, loadContract, rebuildAndRefresh, getSelectedNodeId: () => selectedNodeId, selectNode };
+    return { loadOrg, loadSutartis, loadPirkimas, loadContract, rebuildAndRefresh, getSelectedNodeId: () => selectedNodeId, selectNode };
 }

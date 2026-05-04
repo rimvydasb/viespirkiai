@@ -546,6 +546,115 @@ export async function expandContract(pirkimoNumeris) {
     return { nodes, edges };
 }
 
+// ── expandSutartis ────────────────────────────────────────────────────────────
+
+/**
+ * Loads a single contract as the root node: returns the ContractEntity (isRoot, expanded)
+ * plus buyer and seller OrganizationEntity stubs with Order/Delivery edges.
+ *
+ * @param {string|number} sutartiesUnikalusId
+ * @returns {Promise<{ nodes: object[], edges: object[] }>}
+ */
+export async function expandSutartis(sutartiesUnikalusId) {
+    const id = String(sutartiesUnikalusId);
+
+    const sutartisRes = await postgres.query(
+        `SELECT s."sutartiesUnikalusId", s."pavadinimas", s."verte", s."pirkimoNumeris",
+                s."perkanciosiosOrganizacijosKodas", s."tiekejoKodas",
+                buyer."pavadinimas"  AS "pirkejoName",  buyer."formosKodas"  AS "pirkejoFormosKodas",
+                seller."pavadinimas" AS "tiekejoName",  seller."formosKodas" AS "tiekejoFormosKodas"
+         FROM   public."sutartys" s
+         LEFT JOIN public."jarCsv" buyer  ON buyer."jarKodas"::text  = s."perkanciosiosOrganizacijosKodas"
+         LEFT JOIN public."jarCsv" seller ON seller."jarKodas"::text = s."tiekejoKodas"
+         WHERE  s."sutartiesUnikalusId" = $1
+         LIMIT  1`,
+        [id],
+    );
+
+    const nodes = [];
+    const edges = [];
+    const nodeMap = new Map();
+    const edgeMap = new Map();
+
+    const row = sutartisRes.rows[0];
+    if (!row) return { nodes, edges };
+
+    const cNode = contractNode(row.sutartiesUnikalusId, row.pavadinimas, row.verte, row.pirkimoNumeris || null);
+    cNode.attributes.isRoot = true;
+    cNode.attributes.expanded = true;
+    addNode(nodes, nodeMap, cNode);
+
+    const valueLabel = formatContractValue(row.verte);
+    const w = edgeWeight(row.verte || 0);
+
+    if (row.perkanciosiosOrganizacijosKodas) {
+        const buyerOrg = orgNode(row.perkanciosiosOrganizacijosKodas, row.pirkejoName, row.pirkejoFormosKodas);
+        addNode(nodes, nodeMap, buyerOrg);
+        addEdge(edges, edgeMap, edge(buyerOrg.id, cNode.id, 'Order', valueLabel, null, true, { size: w }));
+    }
+
+    if (row.tiekejoKodas) {
+        const sellerOrg = orgNode(row.tiekejoKodas, row.tiekejoName, row.tiekejoFormosKodas);
+        addNode(nodes, nodeMap, sellerOrg);
+        addEdge(edges, edgeMap, edge(cNode.id, sellerOrg.id, 'Delivery', '', null, false, { size: w }));
+    }
+
+    return { nodes, edges };
+}
+
+// ── expandPirkimas ────────────────────────────────────────────────────────────
+
+/**
+ * Loads a single procurement notice as the root node: returns the ProcurementEntity
+ * (isRoot, expanded) + buyer OrganizationEntity stub + Procurement edge + all winner/bidder
+ * stubs delegated to expandProcurement.
+ *
+ * @param {string|number} pirkimoId
+ * @returns {Promise<{ nodes: object[], edges: object[] }>}
+ */
+export async function expandPirkimas(pirkimoId) {
+    const id = String(pirkimoId);
+
+    const [vpRes, { nodes: winnerNodes, edges: winnerEdges }] = await Promise.all([
+        postgres.query(
+            `SELECT vp."pirkimoId", vp."pavadinimas", vp."numatomaVerteEUR", vp."statusas", vp."pirkimoBudas",
+                    vp."jarKodas",
+                    j."pavadinimas"  AS "buyerPavadinimas",
+                    j."formosKodas" AS "buyerFormosKodas"
+             FROM   public."viesiejiPirkimai" vp
+             LEFT JOIN public."jarCsv" j ON j."jarKodas"::text = vp."jarKodas"
+             WHERE  vp."pirkimoId" = $1
+             LIMIT  1`,
+            [id],
+        ),
+        expandProcurement(id),
+    ]);
+
+    const nodes = [];
+    const edges = [];
+    const nodeMap = new Map();
+    const edgeMap = new Map();
+
+    const row = vpRes.rows[0];
+    const pNode = row
+        ? procurementNode(row.pirkimoId, row.pavadinimas, row.numatomaVerteEUR, row.statusas, row.pirkimoBudas)
+        : procurementNode(id, null, null, null, null);
+    pNode.attributes.isRoot = true;
+    pNode.attributes.expanded = true;
+    addNode(nodes, nodeMap, pNode);
+
+    if (row?.jarKodas) {
+        const buyerOrg = orgNode(row.jarKodas, row.buyerPavadinimas, row.buyerFormosKodas);
+        addNode(nodes, nodeMap, buyerOrg);
+        addEdge(edges, edgeMap, edge(buyerOrg.id, pNode.id, 'Procurement', row.pirkimoBudas || '', null, false, { size: 1 }));
+    }
+
+    for (const n of winnerNodes) addNode(nodes, nodeMap, n);
+    for (const e of winnerEdges) addEdge(edges, edgeMap, e);
+
+    return { nodes, edges };
+}
+
 // ── expandPerson ──────────────────────────────────────────────────────────────
 
 /**

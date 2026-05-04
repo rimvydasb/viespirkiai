@@ -643,6 +643,19 @@ On node collapse (non-primary node only):
 > size-based contract filtering (small / medium / large), legend row counts with zero-count hiding
 > (`computeEdgeCounts`, `vl-count` spans, `▼`/`▲` expand/collapse buttons). See architecture
 > sections above for current implementation state.
+>
+> **Phase 19 complete.** Typed URL routes (`/rysiai/asmuo/:jarKodas`, `/rysiai/sutartis/:id`,
+> `/rysiai/viesiejiPirkimai/:id`), `expandSutartis` and `expandPirkimas` server functions,
+> `RYSIAI_CONFIG` updated to `{ entityType, entityId }`, client dispatch for all three entity types,
+> `loadSutartis` / `loadPirkimas` on `createExpandUI` return value.
+>
+> **Phase 20 (20.1–20.3, 20.5–20.6) complete.** `hash-state.js` (pure module: `FILTER_CHAR_MAP`,
+> `FILTER_ID_MAP`, `applyFilterChars`, `applyFilterFromHash`, `buildHashString`,
+> `updateHashFromFilter`); `rysiai-app.js` reads hash on load, applies filter to primary node,
+> sequentially loads and filters additional entities from hash; `updateHashFromFilter` called after
+> every checkbox change, node expand, and node collapse via `onStateChange` callback; primary node
+> guard (`attrs.isRoot`) prevents expand/collapse button on root node. 48 tests in
+> `test/rysiai/hash-state.test.js` covering happy path, round-trips, and adversarial inputs.
 
 ---
 
@@ -666,7 +679,7 @@ On node collapse (non-primary node only):
 
 ### Phase 19 — Typed URL routes
 
-- [ ] **19.1 — Server: 3 new page routes** in `routes/rysiai.js`:
+- [x] **19.1 — Server: 3 new page routes** in `routes/rysiai.js`:
     - `GET /rysiai/asmuo/:jarKodas` — validates numeric jarKodas; renders EJS with
       `{ entityType: 'asmuo', entityId: jarKodas }`
     - `GET /rysiai/sutartis/:sutartiesUnikalusId` — validates numeric id; renders EJS with
@@ -675,13 +688,13 @@ On node collapse (non-primary node only):
       `{ entityType: 'viesiejiPirkimai', entityId }`
     - All 3 registered **before** any wildcard segments.
 
-- [ ] **19.2 — Server: `expandSutartis(sutartiesUnikalusId)`** in `modules/rysiai/expand.js`:
+- [x] **19.2 — Server: `expandSutartis(sutartiesUnikalusId)`** in `modules/rysiai/expand.js`:
     - Query `sutartys JOIN jarCsv` for the single row by `sutartiesUnikalusId`.
     - Return `ContractEntity` node (`isRoot: true`, `expanded: true`) + buyer `OrganizationEntity`
       stub + seller `OrganizationEntity` stub + `Order` + `Delivery` edges.
     - Expose as `GET /rysiai/expand-sutartis/:sutartiesUnikalusId`.
 
-- [ ] **19.3 — Server: `expandPirkimas(pirkimoId)`** in `modules/rysiai/expand.js`:
+- [x] **19.3 — Server: `expandPirkimas(pirkimoId)`** in `modules/rysiai/expand.js`:
     - Query `viesiejiPirkimai JOIN jarCsv` for the procurement row + buyer org name.
     - Reuse `expandProcurement(pirkimoId)` for winner/bidder stubs.
     - Return `ProcurementEntity` node (`isRoot: true`, `expanded: true`) + buyer
@@ -689,16 +702,16 @@ On node collapse (non-primary node only):
       `expandProcurement`.
     - Expose as `GET /rysiai/expand-pirkimas/:pirkimoId`.
 
-- [ ] **19.4 — View: `RYSIAI_CONFIG` change** in `views/rysiai/index.ejs`:
+- [x] **19.4 — View: `RYSIAI_CONFIG` change** in `views/rysiai/index.ejs`:
     - Replace `{ jarKodas }` with `{ entityType, entityId }`.
     - Template variables passed from all 3 page routes.
 
-- [ ] **19.5 — Client: entity-type dispatch** in `src/rysiai-app.js`:
+- [x] **19.5 — Client: entity-type dispatch** in `src/rysiai-app.js`:
     - Read `window.RYSIAI_CONFIG.entityType` + `entityId`.
     - Route to `ui.loadOrg`, `ui.loadSutartis`, or `ui.loadPirkimas` accordingly.
     - Select the correct initial node ID after load.
 
-- [ ] **19.6 — Client: `loadSutartis` and `loadPirkimas`** in `src/rysiai/expand-ui.js`:
+- [x] **19.6 — Client: `loadSutartis` and `loadPirkimas`** in `src/rysiai/expand-ui.js`:
     - `loadSutartis(sutartiesUnikalusId)` — fetches `/rysiai/expand-sutartis/:id`, merges,
       marks root as selected.
     - `loadPirkimas(pirkimoId)` — fetches `/rysiai/expand-pirkimas/:id`, merges, marks root
@@ -709,36 +722,46 @@ On node collapse (non-primary node only):
 
 ### Phase 20 — URL hash filter state
 
-- [ ] **20.1 — `src/rysiai/hash-state.js`** — new pure module:
+- [x] **20.1 — `src/rysiai/hash-state.js`** — new pure module:
     - Export `FILTER_CHAR_MAP` and `FILTER_ID_MAP` constants (all 12 edge types).
-    - `applyFilterFromHash(legendState, primaryNodeId)` — parse hash with validation (alpha entity
-      type names, numeric entity IDs); apply per-node visibility; return `additionalEntities` array.
-    - `updateHashFromFilter(legendState, dataGraph)` — collect configured nodes, build and set
-      `window.location.hash`.
+    - `applyFilterChars(legendState, nodeId, chars)` — apply a char string to one node.
+    - `applyFilterFromHash(legendState, primaryNodeId, hash?)` — parse hash with validation
+      (alpha entity type names, numeric entity IDs); apply per-node visibility; return
+      `additionalEntities` array. Hash parameter defaults to `window.location.hash`.
+    - `buildHashString(legendState, dataGraph)` — pure helper; builds the hash string without
+      writing to window (testable).
+    - `updateHashFromFilter(legendState, dataGraph)` — calls `buildHashString`, writes
+      `window.location.hash` (clears via `history.replaceState` when empty).
 
-- [ ] **20.2 — `rysiai-app.js` integration**:
-    - After initial load + `selectNode`, call `applyFilterFromHash` for the primary node.
-    - For each `additionalEntities` item returned, call the appropriate `ui.load*` then apply
-      `filter_N` to that node's legend state.
-    - Call `updateHashFromFilter` at the end of every: legend checkbox change, node expand,
-      node collapse.
+- [x] **20.2 — `rysiai-app.js` integration**:
+    - Saves `window.location.hash` before any async operations.
+    - After initial load + `selectNode` + `legendState.initNode`, calls `applyFilterFromHash`
+      for the primary node.
+    - For each `additionalEntities` item returned, calls the appropriate `ui.load*` then applies
+      `filterChars` via `applyFilterChars` and calls `rebuildAndRefresh`.
+    - Calls `syncHash` (= `updateHashFromFilter`) at the end of the full setup.
 
-- [ ] **20.3 — Legend checkbox wiring**: `legend.js` / `expand-ui.js` must invoke
-  `updateHashFromFilter` after `rebuildAndRefresh` in the checkbox change handler and after
-  every expand/collapse completion.
+- [x] **20.3 — Hash wiring**: `onStateChange` callback passed to `createExpandUI`; called at
+  the end of every `_expand` try-block and at the end of `doCollapse` in `collapseNode`.
+  Legend checkbox handler in `rysiai-app.js` also calls `syncHash` after `rebuildAndRefresh`.
 
 - [ ] **20.4 — "Ryšių nerasta" UX**: in `legend.js`, after `updateForNode` detects that the
   expanded node has zero incident edges in `dataGraph`, render the message inside
   `#rysiai-legend-msg` and hide `#rysiai-legend-checkboxes`. The collapse button in
   `#rysiai-legend-btn` is still rendered for non-primary nodes.
 
-- [ ] **20.5 — Primary node guard**: in `expand-ui.js` and `legend.js`, check `attrs.isRoot`
-  before rendering the expand/collapse button. If `isRoot: true`, never render the button.
+- [x] **20.5 — Primary node guard**: `buildHandlers` in `expand-ui.js` returns `{}` immediately
+  when `attrs.isRoot === true` — no expand or collapse button is ever rendered for the root node.
 
-- [ ] **20.6 — Tests `test/rysiai/hash-state.test.js`**:
-    - `applyFilterFromHash` with `filter=DSO` sets Director/Shareholder/Official visible,
-      hides the rest.
-    - `applyFilterFromHash` with no hash leaves state at defaults.
-    - `updateHashFromFilter` round-trips: apply → collect → assert hash string.
-    - Multi-entity hash: `asmuo_2=...&filter_2=LMG` parsed and returned in `additionalEntities`.
-    - Invalid entity type (non-alpha) and invalid entity ID (non-numeric) are silently ignored.
+- [x] **20.6 — Tests `test/rysiai/hash-state.test.js`** — 48 tests across 5 suites:
+    - `FILTER_CHAR_MAP / FILTER_ID_MAP` constants verified (12 entries, round-trip inverse).
+    - `applyFilterChars`: DSO visible/hidden split, all-hidden, all-visible, per-node isolation.
+    - `applyFilterFromHash`: empty/bare-hash, no-filter key, DSO application, all-hidden,
+      single and multi-entity parsing, viesiejiPirkimai entity type, missing filter_N, invalid
+      entity type (non-alpha), invalid entity ID (non-numeric), N=0, negative N.
+    - `buildHashString`: empty state, all-hidden, DSO round-trip, char insertion order, contract
+      and procurement root types, multi-entity, secondary N=2 numbering, missing idAttr skip.
+    - Adversarial inputs: no `=` sign, unknown single-segment keys, numeric chars in type,
+      empty type, N=0, negative N, non-numeric ID, empty ID, still applies primary filter on
+      invalid extras, unknown filter chars treated as absent, filter_ only keys, duplicate keys,
+      out-of-order entityNumbers, URL-encoded numeric IDs.

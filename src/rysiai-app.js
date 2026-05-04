@@ -3,6 +3,7 @@ import { createExpandUI } from './rysiai/expand-ui.js';
 import { NodeLegend } from './rysiai/legend.js';
 import { NodeDetails } from './rysiai/details-panel.js';
 import { LegendState } from './rysiai/legend-state.js';
+import { applyFilterChars, applyFilterFromHash, updateHashFromFilter } from './rysiai/hash-state.js';
 
 var _v = window.Rysiai;
 var Sigma = _v.Sigma;
@@ -43,7 +44,9 @@ var renderer = new Sigma(viewGraph, container, {
     maxCameraRatio: 5,
 });
 
-var ui = createExpandUI({ dataGraph, viewGraph, renderer, statusEl, loadingEl, forceAtlas2, noverlap, animateNodes, legendState, nodeDetails });
+function syncHash() { updateHashFromFilter(legendState, dataGraph); }
+
+var ui = createExpandUI({ dataGraph, viewGraph, renderer, statusEl, loadingEl, forceAtlas2, noverlap, animateNodes, legendState, nodeDetails, onStateChange: syncHash });
 
 // Canvas overlay for dashed edges (ContractProcurementLink, Award, Bidder)
 var dashedOverlay = document.createElement('canvas');
@@ -87,10 +90,54 @@ renderer.on('afterRender', function () {
     });
 });
 
-legend.bindCheckboxes(function () { return ui.getSelectedNodeId(); }, ui.rebuildAndRefresh);
+legend.bindCheckboxes(function () { return ui.getSelectedNodeId(); }, function () {
+    ui.rebuildAndRefresh();
+    syncHash();
+});
 
-var INITIAL_JAR_KODAS = window.RYSIAI_CONFIG.jarKodas;
+var RYSIAI_ENTITY_TYPE = window.RYSIAI_CONFIG.entityType;
+var RYSIAI_ENTITY_ID   = window.RYSIAI_CONFIG.entityId;
+
 document.addEventListener('DOMContentLoaded', async function () {
-    await ui.loadOrg(INITIAL_JAR_KODAS, null);
-    ui.selectNode('org:' + INITIAL_JAR_KODAS);
+    // Save incoming hash before any async operations that may overwrite it.
+    var initialHash = window.location.hash;
+
+    var primaryNodeId;
+    if (RYSIAI_ENTITY_TYPE === 'sutartis') {
+        await ui.loadSutartis(RYSIAI_ENTITY_ID);
+        primaryNodeId = 'contract:' + RYSIAI_ENTITY_ID;
+    } else if (RYSIAI_ENTITY_TYPE === 'viesiejiPirkimai') {
+        await ui.loadPirkimas(RYSIAI_ENTITY_ID);
+        primaryNodeId = 'procurement:' + RYSIAI_ENTITY_ID;
+    } else {
+        await ui.loadOrg(RYSIAI_ENTITY_ID, null);
+        primaryNodeId = 'org:' + RYSIAI_ENTITY_ID;
+    }
+
+    ui.selectNode(primaryNodeId);
+    legendState.initNode(primaryNodeId);
+
+    var { additionalEntities } = applyFilterFromHash(legendState, primaryNodeId, initialHash);
+    ui.rebuildAndRefresh();
+
+    for (var i = 0; i < additionalEntities.length; i++) {
+        var extra = additionalEntities[i];
+        var extraNodeId;
+        if (extra.entityType === 'asmuo') {
+            await ui.loadOrg(extra.entityId, null);
+            extraNodeId = 'org:' + extra.entityId;
+        } else if (extra.entityType === 'sutartis') {
+            await ui.loadSutartis(extra.entityId);
+            extraNodeId = 'contract:' + extra.entityId;
+        } else if (extra.entityType === 'viesiejiPirkimai') {
+            await ui.loadPirkimas(extra.entityId);
+            extraNodeId = 'procurement:' + extra.entityId;
+        }
+        if (extraNodeId && extra.filterChars) {
+            applyFilterChars(legendState, extraNodeId, extra.filterChars);
+            ui.rebuildAndRefresh();
+        }
+    }
+
+    syncHash();
 });

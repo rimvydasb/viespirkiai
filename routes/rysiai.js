@@ -1,9 +1,48 @@
 import express from 'express';
 import { log } from '../utils/log.js';
-import { expandOrg, expandPerson, expandProcurement, expandContract } from '../modules/rysiai/expand.js';
+import { expandOrg, expandPerson, expandProcurement, expandContract, expandSutartis, expandPirkimas } from '../modules/rysiai/expand.js';
 import config from '../utils/config.js';
 
 const rysiaiRouter = express.Router();
+
+// ── Static page routes (must precede wildcard segments) ───────────────────────
+
+rysiaiRouter.get('/rysiai/', (req, res, next) => next());
+
+rysiaiRouter.get('/rysiai/asmuo/:jarKodas', (req, res, next) => {
+    const { jarKodas } = req.params;
+    if (!/^\d+$/.test(jarKodas)) return next();
+    res.renderCompiled('rysiai/index', {
+        req,
+        entityType: 'asmuo',
+        entityId: jarKodas,
+        customHead: config.customHead || '',
+    });
+});
+
+rysiaiRouter.get('/rysiai/sutartis/:sutartiesUnikalusId', (req, res, next) => {
+    const { sutartiesUnikalusId } = req.params;
+    if (!/^\d+$/.test(sutartiesUnikalusId)) return next();
+    res.renderCompiled('rysiai/index', {
+        req,
+        entityType: 'sutartis',
+        entityId: sutartiesUnikalusId,
+        customHead: config.customHead || '',
+    });
+});
+
+rysiaiRouter.get('/rysiai/viesiejiPirkimai/:pirkimoId', (req, res, next) => {
+    const { pirkimoId } = req.params;
+    if (!/^\d+$/.test(pirkimoId)) return next();
+    res.renderCompiled('rysiai/index', {
+        req,
+        entityType: 'viesiejiPirkimai',
+        entityId: pirkimoId,
+        customHead: config.customHead || '',
+    });
+});
+
+// ── JSON API endpoints ────────────────────────────────────────────────────────
 
 rysiaiRouter.get('/rysiai/expand/:jarKodas', async (req, res) => {
     const { jarKodas } = req.params;
@@ -61,14 +100,32 @@ rysiaiRouter.get('/rysiai/expand-contract/:pirkimoNumeris', async (req, res) => 
     }
 });
 
-rysiaiRouter.get('/rysiai/:jarKodas', async (req, res, next) => {
-    const { jarKodas } = req.params;
-    if (!jarKodas || !/^\d+$/.test(jarKodas)) return next();
-    res.renderCompiled('rysiai/index', {
-        req,
-        jarKodas,
-        customHead: config.customHead || '',
-    });
+rysiaiRouter.get('/rysiai/expand-sutartis/:sutartiesUnikalusId', async (req, res) => {
+    const { sutartiesUnikalusId } = req.params;
+    if (!sutartiesUnikalusId || !/^\d+$/.test(sutartiesUnikalusId)) {
+        return res.status(400).json({ error: 'Neteisingas sutartiesUnikalusId' });
+    }
+    try {
+        const data = await expandSutartis(sutartiesUnikalusId);
+        res.json(data);
+    } catch (err) {
+        log(`expandSutartis klaida (${sutartiesUnikalusId}): ${err.message}`);
+        res.status(500).json({ error: 'Vidinė klaida' });
+    }
+});
+
+rysiaiRouter.get('/rysiai/expand-pirkimas/:pirkimoId', async (req, res) => {
+    const { pirkimoId } = req.params;
+    if (!pirkimoId || !/^\d+$/.test(pirkimoId)) {
+        return res.status(400).json({ error: 'Neteisingas pirkimoId' });
+    }
+    try {
+        const data = await expandPirkimas(pirkimoId);
+        res.json(data);
+    } catch (err) {
+        log(`expandPirkimas klaida (${pirkimoId}): ${err.message}`);
+        res.status(500).json({ error: 'Vidinė klaida' });
+    }
 });
 
 export default rysiaiRouter;
