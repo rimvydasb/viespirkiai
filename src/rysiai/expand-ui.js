@@ -112,6 +112,15 @@ export function createExpandUI({ dataGraph, viewGraph, renderer, statusEl, loadi
     function rebuildAndRefresh() {
         if (cancelAnimation) { cancelAnimation(); cancelAnimation = null; }
         rebuildViewGraph(dataGraph, viewGraph, (s, t, type, sz) => legendState.isEdgeHidden(s, t, type, sz));
+        // After a cancelled animation, viewGraph positions may be stale — nodes stacked at the
+        // animation origin. Restore last-known positions from dataGraph (saved after each layout
+        // pass) so runLayout starts from the correct resting state, not mid-animation positions.
+        viewGraph.forEachNode((id) => {
+            if (dataGraph.hasNode(id)) {
+                viewGraph.setNodeAttribute(id, 'x', dataGraph.getNodeAttribute(id, 'x'));
+                viewGraph.setNodeAttribute(id, 'y', dataGraph.getNodeAttribute(id, 'y'));
+            }
+        });
         runLayout(viewGraph, forceAtlas2, noverlap);
         syncPositionsToData(dataGraph, viewGraph);
         if (selectedNodeId) setSelection(selectedNodeId, true);
@@ -132,7 +141,18 @@ export function createExpandUI({ dataGraph, viewGraph, renderer, statusEl, loadi
             const fromNodeId = ownerId || (viewGraph.hasNode(id) ? id : null);
             const startPos = fromNodeId ? getNodePos(fromNodeId) : null;
 
-            if (cancelAnimation) { cancelAnimation(); cancelAnimation = null; }
+            if (cancelAnimation) {
+                cancelAnimation();
+                cancelAnimation = null;
+                // Restore last-known positions from dataGraph so subsequent layout doesn't start
+                // from mid-animation / stacked positions left by the cancelled animation.
+                viewGraph.forEachNode((nodeId) => {
+                    if (dataGraph.hasNode(nodeId)) {
+                        viewGraph.setNodeAttribute(nodeId, 'x', dataGraph.getNodeAttribute(nodeId, 'x'));
+                        viewGraph.setNodeAttribute(nodeId, 'y', dataGraph.getNodeAttribute(nodeId, 'y'));
+                    }
+                });
+            }
 
             mergeGraphElements(dataGraph, getNodePos, data, fromNodeId, rootNodeId);
             afterMerge(id);
