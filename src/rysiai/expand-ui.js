@@ -175,6 +175,8 @@ export function createExpandUI({ dataGraph, viewGraph, renderer, statusEl, loadi
         } catch (err) {
             setStatus('Klaida kraunant duomenis.');
             console.error(err);
+            onStateChange?.();
+            refreshSelectedNodePanel();
         } finally {
             expandingNodes.delete(id);
             if (expandingNodes.size === 0) hideLoading();
@@ -213,10 +215,13 @@ export function createExpandUI({ dataGraph, viewGraph, renderer, statusEl, loadi
             _expand(kind.id(attrs), kind.url(attrs), markExpanded);
         } else if (isContractNode(attrs)) {
             markExpanded(nodeId);
+            legendState.initNode(nodeId);
             if (attrs.pirkimoNumeris) {
                 loadContract(attrs.pirkimoNumeris, nodeId);
             } else {
-                renderer.refresh();
+                rebuildAndRefresh();
+                onStateChange?.();
+                refreshSelectedNodePanel();
             }
         }
     }

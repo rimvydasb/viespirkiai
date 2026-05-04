@@ -71,13 +71,12 @@ renderer.on('afterRender', function () {
     dashedCtx.clearRect(0, 0, dashedOverlay.width, dashedOverlay.height);
 
     var dashedEdgeTypes = { 'ContractProcurementLink': true, 'Award': true, 'Bidder': true };
-    var camera = renderer.getCamera();
 
     viewGraph.forEachEdge(function (edgeId, attrs, source, target, sourceAttrs, targetAttrs) {
         if (!dashedEdgeTypes[attrs.edgeType]) return;
 
-        var p1 = camera.graphToViewport({ x: sourceAttrs.x, y: sourceAttrs.y });
-        var p2 = camera.graphToViewport({ x: targetAttrs.x, y: targetAttrs.y });
+        var p1 = renderer.graphToViewport({ x: sourceAttrs.x, y: sourceAttrs.y });
+        var p2 = renderer.graphToViewport({ x: targetAttrs.x, y: targetAttrs.y });
 
         dashedCtx.strokeStyle = attrs.color || '#d1d5db';
         dashedCtx.lineWidth = 1.5;
