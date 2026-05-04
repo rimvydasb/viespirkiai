@@ -100,7 +100,7 @@ export function buildHashString(legendState, dataGraph) {
     let primaryId = null;
 
     dataGraph.forEachNode((id, attrs) => {
-        if (attrs.isRoot) primaryId = id;
+        if (attrs.isRoot && primaryId === null) primaryId = id;
     });
 
     if (primaryId && legendState.hasNodeConfig(primaryId)) {

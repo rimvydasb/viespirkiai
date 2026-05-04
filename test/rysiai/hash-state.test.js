@@ -31,6 +31,10 @@ function rootProcurementAttrs(pirkimoId) {
     return { entityType: 'ProcurementEntity', pirkimoId, isRoot: true, expanded: true };
 }
 
+function extraContractAttrs(sutartiesUnikalusId) {
+    return { entityType: 'ContractEntity', sutartiesUnikalusId, isRoot: false, expanded: true };
+}
+
 // ── FILTER_CHAR_MAP / FILTER_ID_MAP ───────────────────────────────────────────
 
 describe('FILTER_CHAR_MAP / FILTER_ID_MAP', () => {
@@ -321,6 +325,52 @@ describe('buildHashString', () => {
         const h = buildHashString(state, graph);
         assert.ok(!h.includes('asmuo_2'), `org without jarKodas should be skipped: ${h}`);
     });
+
+    it('uses first-encountered isRoot node as primary when multiple nodes have isRoot=true', () => {
+        const state = new LegendState();
+        const graph = makeGraph(
+            ['org:111', rootOrgAttrs('111')],
+            ['contract:999', rootContractAttrs('999')],
+        );
+        applyFilterChars(state, 'org:111', 'DS');
+        applyFilterChars(state, 'contract:999', 'DSLMGPABC');
+        const h = buildHashString(state, graph);
+        assert.ok(h.startsWith('#filter=DS'), `primary should be org:111, not contract: ${h}`);
+        assert.ok(h.includes('sutartis_2=999'), `contract should be secondary: ${h}`);
+        assert.ok(h.includes('filter_2=DSLMGPABC'), `contract filter: ${h}`);
+    });
+
+    it('includes contract secondary node (isRoot=false) with all filters in hash', () => {
+        const state = new LegendState();
+        const graph = makeGraph(
+            ['org:190011232', rootOrgAttrs('190011232')],
+            ['org:121215434', extraOrgAttrs('121215434')],
+            ['contract:1675917562', extraContractAttrs('1675917562')],
+        );
+        applyFilterChars(state, 'org:190011232', '');
+        applyFilterChars(state, 'org:121215434', '');
+        applyFilterChars(state, 'contract:1675917562', 'DSLMGPABC');
+        const h = buildHashString(state, graph);
+        assert.equal(h, '#filter=&asmuo_2=121215434&filter_2=&sutartis_3=1675917562&filter_3=DSLMGPABC');
+    });
+
+    it('includes contract secondary even when it also has isRoot=true (e.g. loaded via loadSutartis on a fresh node)', () => {
+        const state = new LegendState();
+        // Simulates: page is asmuo/190011232, contract was NOT in dataGraph before loadSutartis,
+        // so mergeGraphElements marked it isRoot=true. The org (inserted first) must remain primary.
+        const graph = makeGraph(
+            ['org:190011232', rootOrgAttrs('190011232')],
+            ['org:121215434', extraOrgAttrs('121215434')],
+            ['contract:1675917562', rootContractAttrs('1675917562')], // isRoot:true but not first
+        );
+        applyFilterChars(state, 'org:190011232', '');
+        applyFilterChars(state, 'org:121215434', '');
+        applyFilterChars(state, 'contract:1675917562', 'DSLMGPABC');
+        const h = buildHashString(state, graph);
+        assert.ok(h.startsWith('#filter='), `org:190011232 must be primary: ${h}`);
+        assert.ok(h.includes('sutartis_2=') || h.includes('sutartis_3='), `contract must appear in hash: ${h}`);
+        assert.ok(!h.includes('asmuo_2=190011232'), `primary org must not appear as secondary: ${h}`);
+    });
 });
 
 // ── applyFilterFromHash + buildHashString round-trip ─────────────────────────
@@ -341,6 +391,26 @@ describe('round-trip: applyFilterFromHash → buildHashString', () => {
             assert.equal(buildHashString(state, graph), hash);
         });
     }
+
+    it('round-trips full sutartis-link hash: empty filters for orgs, full filter for contract secondary', () => {
+        const hash = '#filter=&asmuo_2=121215434&filter_2=&sutartis_3=1675917562&filter_3=DSLMGPABC';
+        const state = new LegendState();
+        const graph = makeGraph(
+            ['org:190011232', rootOrgAttrs('190011232')],
+            ['org:121215434', extraOrgAttrs('121215434')],
+            ['contract:1675917562', extraContractAttrs('1675917562')],
+        );
+        const { additionalEntities } = applyFilterFromHash(state, 'org:190011232', hash);
+        // Simulate rysiai-app.js: always call applyFilterChars for every additional entity
+        // (including those with empty filterChars so they get hasNodeConfig=true)
+        for (const extra of additionalEntities) {
+            const nodeId = extra.entityType === 'asmuo'            ? 'org:' + extra.entityId
+                         : extra.entityType === 'sutartis'         ? 'contract:' + extra.entityId
+                         : 'procurement:' + extra.entityId;
+            applyFilterChars(state, nodeId, extra.filterChars);
+        }
+        assert.equal(buildHashString(state, graph), hash);
+    });
 });
 
 // ── Unhappy path: malformed and adversarial hash inputs ───────────────────────

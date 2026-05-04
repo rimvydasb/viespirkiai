@@ -577,7 +577,12 @@ export async function expandSutartis(sutartiesUnikalusId) {
     const edgeMap = new Map();
 
     const row = sutartisRes.rows[0];
-    if (!row) return { nodes, edges };
+    if (!row) {
+        const cNode = contractNode(id, null, null, null);
+        cNode.attributes.expanded = true;
+        addNode(nodes, nodeMap, cNode);
+        return { nodes, edges };
+    }
 
     const cNode = contractNode(row.sutartiesUnikalusId, row.pavadinimas, row.verte, row.pirkimoNumeris || null);
     cNode.attributes.isRoot = true;

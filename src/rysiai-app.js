@@ -137,7 +137,7 @@ document.addEventListener('DOMContentLoaded', async function () {
             await ui.loadPirkimas(extra.entityId);
             extraNodeId = 'procurement:' + extra.entityId;
         }
-        if (extraNodeId && extra.filterChars) {
+        if (extraNodeId) {
             applyFilterChars(legendState, extraNodeId, extra.filterChars);
         }
     }
