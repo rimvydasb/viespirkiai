@@ -503,7 +503,7 @@ export async function expandContract(pirkimoNumeris) {
                     j."pavadinimas",
                     j."formosKodas"
              FROM   public."atn1dalyviai" d
-             JOIN   public."atn1ataskaitos" a ON a."id" = d."ataskaitosId"
+             JOIN   public."atn1ataskaitos" a ON a."id" = d."ataskaitaId"
              LEFT JOIN public."jarCsv" j ON j."jarKodas"::text = d."kodas"
              WHERE  a."pirkimoNumeris" = $1
                AND  d."salis" = 'LT'`,

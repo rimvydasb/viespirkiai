@@ -311,8 +311,9 @@ export function computeEdgeCounts(graph, nodeId) {
 export function runLayout(graph, forceAtlas2, noverlap) {
     if (graph.order < 2) return;
     const inferred = forceAtlas2.inferSettings(graph);
+    const fa2Iterations = Math.min(600, Math.max(200, graph.order * 8));
     const positions = forceAtlas2(graph, {
-        iterations: 200,
+        iterations: fa2Iterations,
         settings: Object.assign({}, inferred, {
             scalingRatio: Math.max(inferred.scalingRatio || 1, 10),
             gravity: 0.5,
@@ -324,5 +325,5 @@ export function runLayout(graph, forceAtlas2, noverlap) {
             graph.setNodeAttribute(id, 'y', positions[id].y);
         }
     });
-    noverlap(graph, { maxIterations: 100, settings: { ratio: 1.2 } });
+    noverlap(graph, { maxIterations: 200, settings: { ratio: 1.5 } });
 }

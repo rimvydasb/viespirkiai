@@ -18,6 +18,8 @@ self.addEventListener("fetch", (event) => {
         return;
     }
 
-    // For all other requests, just fetch from network
-    event.respondWith(fetch(event.request));
+    // For all other requests, fetch from network; suppress unhandled rejection on failure
+    event.respondWith(
+        fetch(event.request).catch(() => new Response('', { status: 503, statusText: 'Service Unavailable' })),
+    );
 });
