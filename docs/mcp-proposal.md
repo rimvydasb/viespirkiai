@@ -2,40 +2,52 @@
 
 ## The insight
 
-A human says: *"This company feels off — they keep winning government contracts in my town and they only have 2 employees."*
+A human says: *"This company feels off — they keep winning government contracts in my town and they only have 2
+employees."*
 
-The human is **not** a researcher. They won't write queries. They won't pick from a menu of pre-built risk patterns. They have **intuition** and **context** that no database has.
+The human is **not** a researcher. They won't write queries. They won't pick from a menu of pre-built risk patterns.
+They have **intuition** and **context** that no database has.
 
 The LLM already knows:
+
 - What bid rigging looks like
 - What shell company patterns look like
 - What conflict-of-interest networks look like
 - OECD red flag indicators, academic fraud typologies, Benford's law, etc.
 
-What the LLM **lacks** is the ability to **look at the actual data** and run the investigation itself. It needs to form hypotheses and test them against real records — iteratively, like an analyst would.
+What the LLM **lacks** is the ability to **look at the actual data** and run the investigation itself. It needs to form
+hypotheses and test them against real records — iteratively, like an analyst would.
 
-Pre-built materialized views kill this. They assume you know the questions in advance. The whole point is that you don't. The human brings the smell, the LLM brings the methodology, and the data brings the truth.
+Pre-built materialized views kill this. They assume you know the questions in advance. The whole point is that you
+don't. The human brings the smell, the LLM brings the methodology, and the data brings the truth.
 
-Viespirkiai is a **data provider, not a fraud research lab**. Encoding every fraud pattern into SQL views is neither sustainable nor scalable — that knowledge lives in the LLM and evolves with every model update. Patterns change, new fraud typologies emerge, and LLMs get smarter. The tool must let the intelligence evolve without code changes.
+Viespirkiai is a **data provider, not a fraud research lab**. Encoding every fraud pattern into SQL views is neither
+sustainable nor scalable — that knowledge lives in the LLM and evolves with every model update. Patterns change, new
+fraud typologies emerge, and LLMs get smarter. The tool must let the intelligence evolve without code changes.
 
 ---
 
 ## Approach: safe, general-purpose analytical query interface
 
-One MCP tool that gives the LLM **read-only, constrained, audited SQL access** to the procurement database. Not a menu of queries. Not a DSL. The LLM writes SQL, the tool validates and executes it safely.
+One MCP tool that gives the LLM **read-only, constrained, audited SQL access** to the procurement database. Not a menu
+of queries. Not a DSL. The LLM writes SQL, the tool validates and executes it safely.
 
 ### Why SQL is the right interface
 
 - The LLM already writes excellent SQL. No training needed.
-- SQL is the only language expressive enough to cover filtering, aggregation, window functions, graph traversal (recursive CTEs), and statistical analysis in one syntax.
-- Any custom DSL (EBNF, predicate logic, rule engine) will be strictly less expressive than SQL, and takes months to build what PostgreSQL already does.
-- Every BI/analytics platform (Metabase, Redash, Superset, Databricks) solved this same problem the same way: constrained SQL execution.
+- SQL is the only language expressive enough to cover filtering, aggregation, window functions, graph traversal (
+  recursive CTEs), and statistical analysis in one syntax.
+- Any custom DSL (EBNF, predicate logic, rule engine) will be strictly less expressive than SQL, and takes months to
+  build what PostgreSQL already does.
+- Every BI/analytics platform (Metabase, Redash, Superset, Databricks) solved this same problem the same way:
+  constrained SQL execution.
 
 ### What the LLM needs to do during an investigation
 
 1. **Explore the schema** — "what columns does `sutartys` have?"
 2. **Run analytical queries** — "aggregate contract values by supplier, joined with sodra employee counts"
-3. **Traverse relationships** — "who are the people linked to this company, and what other companies are they linked to?"
+3. **Traverse relationships** — "who are the people linked to this company, and what other companies are they linked
+   to?"
 4. **Iterate** — the answer to query 1 informs query 2 informs query 3
 
 This is an **agentic investigation loop**, not a single tool call.
@@ -53,13 +65,15 @@ tool: get_schema
 table: "sutartys" | "jarCsv" | "pinregJuridiniaiRysiai" | ...
 ```
 
-Returns: column names, types, nullable, sample values (first 3 rows), row count. Data sourced from `information_schema` filtered to the whitelist.
+Returns: column names, types, nullable, sample values (first 3 rows), row count. Data sourced from `information_schema`
+filtered to the whitelist.
 
 The LLM calls this at the start of an investigation to understand what data is available and how tables relate.
 
 ### Tool 2: `execute_investigation_query`
 
-The analytical workhorse. Accepts a SQL SELECT, validates it through a multi-layer guardrail stack, executes it on a sandboxed read-only connection, and returns results.
+The analytical workhorse. Accepts a SQL SELECT, validates it through a multi-layer guardrail stack, executes it on a
+sandboxed read-only connection, and returns results.
 
 ```
 tool: execute_investigation_query
@@ -67,7 +81,8 @@ query: "SELECT ..."
 purpose: "Testing hypothesis: supplier X has abnormally high win rate relative to competitors"
 ```
 
-The `purpose` field is for **audit logging**, not validation — it creates a human-readable trail of why each query was run.
+The `purpose` field is for **audit logging**, not validation — it creates a human-readable trail of why each query was
+run.
 
 ---
 
@@ -143,54 +158,60 @@ Six layers of defense. Each layer is independent — even if one fails, the othe
 
 ### Dedicated read-only PostgreSQL role
 
-The database-level last line of defense. Even if every application-layer guard fails, this role **cannot** modify data or access system internals.
+The database-level last line of defense. Even if every application-layer guard fails, this role **cannot** modify data
+or access system internals.
 
 ```sql
-CREATE ROLE mcp_analyst LOGIN PASSWORD '...';
+CREATE
+ROLE mcp_analyst LOGIN PASSWORD '...';
 GRANT CONNECT ON DATABASE viespirkiai TO mcp_analyst;
 GRANT USAGE ON SCHEMA public TO mcp_analyst;
 
 -- SELECT only on analytical tables
-GRANT SELECT ON
-  sutartys,
-  "sutartysAtviriDuomenys",
-  "sutartysAtviriDuomenysImp",
-  "jarCsv",
-  jar,
-  "viesiejiPirkimai",
-  "viesiejiPirkimaiVykdytojai",
-  "pinregJuridiniaiRysiai",
-  pinreg,
-  failai,
-  "sabisSutartys",
-  "sabisSutarciuSalys",
-  "sabisSaskaitos",
-  "sabisSaskaituSalys",
-  "cpvaProjektuSutartys",
-  "cpvaProjektuSarasas",
-  "cvppViesiejiPirkimai",
-  "eiluciuSkaiciai",
-  "bvpzKodai",
-  "sodra",
-  "vmiDuomenys",
-  "regitraDuomenys",
-  "teismoNuosprendziai",
-  "nepatikimiTiekejai",
-  "melagingiTiekejai",
-  "jadisDuomenys",
-  "rcPranesimai",
-  "domenai",
-  "kotisIrasai",
-  "finansai",
-  "darboSkelbimai",
-  "istatinisKapitalas"
-TO mcp_analyst;
+GRANT
+SELECT
+ON
+    sutartys,
+    "sutartysAtviriDuomenys",
+    "sutartysAtviriDuomenysImp",
+    "jarCsv",
+    jar,
+    "viesiejiPirkimai",
+    "viesiejiPirkimaiVykdytojai",
+    "pinregJuridiniaiRysiai",
+    pinreg,
+    failai,
+    "sabisSutartys",
+    "sabisSutarciuSalys",
+    "sabisSaskaitos",
+    "sabisSaskaituSalys",
+    "cpvaProjektuSutartys",
+    "cpvaProjektuSarasas",
+    "cvppViesiejiPirkimai",
+    "eiluciuSkaiciai",
+    "bvpzKodai",
+    "sodra",
+    "vmiDuomenys",
+    "regitraDuomenys",
+    "teismoNuosprendziai",
+    "nepatikimiTiekejai",
+    "melagingiTiekejai",
+    "jadisDuomenys",
+    "rcPranesimai",
+    "domenai",
+    "kotisIrasai",
+    "finansai",
+    "darboSkelbimai",
+    "istatinisKapitalas"
+    TO mcp_analyst;
 
 -- No INSERT, UPDATE, DELETE, CREATE, DROP — implicit by omission
 
 -- Role-level resource limits
-ALTER ROLE mcp_analyst SET statement_timeout = '10s';
-ALTER ROLE mcp_analyst SET work_mem = '32MB';
+ALTER
+ROLE mcp_analyst SET statement_timeout = '10s';
+ALTER
+ROLE mcp_analyst SET work_mem = '32MB';
 ```
 
 ---
@@ -264,7 +285,8 @@ query:
 → 47 procurements, 41 cheapest wins (87%), avg 2.3 competitors, price ratio 0.72
 ```
 
-*LLM notes: Wins 87% of the time as lowest bidder with few competitors. Consistent underbidding at 72% of average price. Matches bid-rigging suppression pattern.*
+*LLM notes: Wins 87% of the time as lowest bidder with few competitors. Consistent underbidding at 72% of average price.
+Matches bid-rigging suppression pattern.*
 
 ### Step 5 — Who else bids alongside them?
 
@@ -320,58 +342,69 @@ query:
   Petras Petraitis: director of 301234567, spouse declares for 309876543
 ```
 
-*The LLM now has a complete picture: three companies, two people, shared ownership, consistent bid suppression, classic carousel.*
+*The LLM now has a complete picture: three companies, two people, shared ownership, consistent bid suppression, classic
+carousel.*
 
 ### Step 7 — LLM summarizes findings to the human
 
-> Your intuition was right. UAB Greitas Statyba (3 employees, €12.3M in contracts) has won 87% of its road procurement contracts as the cheapest bidder. The same two companies — UAB Keliu Draugai and UAB Asfaltas Pro — appear as competitors in most of these procurements and consistently bid higher. These three companies share people: Jonas Jonaitis is director of Greitas Statyba and shareholder of Keliu Draugai; Petras Petraitis directs Keliu Draugai while his spouse is linked to Asfaltas Pro. This pattern is consistent with coordinated bid rigging (cover bidding / bid rotation).
+> Your intuition was right. UAB Greitas Statyba (3 employees, €12.3M in contracts) has won 87% of its road procurement
+> contracts as the cheapest bidder. The same two companies — UAB Keliu Draugai and UAB Asfaltas Pro — appear as
+> competitors in most of these procurements and consistently bid higher. These three companies share people: Jonas
+> Jonaitis is director of Greitas Statyba and shareholder of Keliu Draugai; Petras Petraitis directs Keliu Draugai while
+> his spouse is linked to Asfaltas Pro. This pattern is consistent with coordinated bid rigging (cover bidding / bid
+> rotation).
 
 ---
 
 ## Why this works
 
-| Property | Outcome |
-|----------|---------|
-| Human brings intuition | The investigation starts from a gut feeling, not a query |
+| Property               | Outcome                                                                                           |
+|------------------------|---------------------------------------------------------------------------------------------------|
+| Human brings intuition | The investigation starts from a gut feeling, not a query                                          |
 | LLM brings methodology | Fraud detection patterns, statistical tests, investigation sequencing — no pre-built views needed |
-| Data brings truth | Every hypothesis is tested against real records |
-| Tool brings safety | Six guardrail layers, read-only role, audit trail |
-| No maintenance burden | New fraud patterns emerge from LLM updates, not code changes |
-| Iterative by nature | Each query result shapes the next question — agentic loop |
+| Data brings truth      | Every hypothesis is tested against real records                                                   |
+| Tool brings safety     | Six guardrail layers, read-only role, audit trail                                                 |
+| No maintenance burden  | New fraud patterns emerge from LLM updates, not code changes                                      |
+| Iterative by nature    | Each query result shapes the next question — agentic loop                                         |
 
 ## What to build
 
-| Component | Effort | Notes |
-|-----------|--------|-------|
-| `get_schema` MCP tool | Small | Query `information_schema`, filter to whitelist |
-| `execute_investigation_query` MCP tool | Medium | SQL parser + guardrail stack + execution |
-| Read-only PG role (`mcp_analyst`) | Small | One-time DDL |
-| SQL AST validation module | Medium | `node-sql-parser`, table/function whitelist, complexity checks |
-| Audit logging | Small | Insert to a `query_audit_log` table |
-| MCP tool description / prompt engineering | Small | Tell the LLM what tables exist and how they relate |
+| Component                                 | Effort | Notes                                                          |
+|-------------------------------------------|--------|----------------------------------------------------------------|
+| `get_schema` MCP tool                     | Small  | Query `information_schema`, filter to whitelist                |
+| `execute_investigation_query` MCP tool    | Medium | SQL parser + guardrail stack + execution                       |
+| Read-only PG role (`mcp_analyst`)         | Small  | One-time DDL                                                   |
+| SQL AST validation module                 | Medium | `node-sql-parser`, table/function whitelist, complexity checks |
+| Audit logging                             | Small  | Insert to a `query_audit_log` table                            |
+| MCP tool description / prompt engineering | Small  | Tell the LLM what tables exist and how they relate             |
 
 ### Recommended npm packages
 
-- **`node-sql-parser`** — parses SQL into AST, supports PostgreSQL dialect, can validate table/column references against a whitelist. Well-maintained, 2M+ weekly downloads.
+- **`node-sql-parser`** — parses SQL into AST, supports PostgreSQL dialect, can validate table/column references against
+  a whitelist. Well-maintained, 2M+ weekly downloads.
 - No custom grammar, no EBNF, no rule engine needed.
 
 ---
 
 ## Risks and mitigations
 
-| Risk | Mitigation |
-|------|------------|
-| SQL injection via crafted query | AST parsing rejects non-SELECT; read-only role as defense-in-depth |
-| Expensive queries (full table scans) | `statement_timeout = 10s`, `work_mem` cap, LIMIT enforcement |
-| Data exfiltration | Table whitelist controls what's visible; sensitive columns can be excluded |
-| LLM writes wrong SQL | LLM can see errors, retry, self-correct — this is normal agentic behavior |
-| Prompt injection via data content | MCP tool returns raw data; LLM must treat it as untrusted (standard MCP practice) |
+| Risk                                 | Mitigation                                                                        |
+|--------------------------------------|-----------------------------------------------------------------------------------|
+| SQL injection via crafted query      | AST parsing rejects non-SELECT; read-only role as defense-in-depth                |
+| Expensive queries (full table scans) | `statement_timeout = 10s`, `work_mem` cap, LIMIT enforcement                      |
+| Data exfiltration                    | Table whitelist controls what's visible; sensitive columns can be excluded        |
+| LLM writes wrong SQL                 | LLM can see errors, retry, self-correct — this is normal agentic behavior         |
+| Prompt injection via data content    | MCP tool returns raw data; LLM must treat it as untrusted (standard MCP practice) |
 
 ---
 
 ## Future extensions
 
-- **Materialized risk scores**: Once common investigation patterns stabilize, materialize them as views for faster access — but as optimization, not as the primary interface.
-- **Graph-aware schema hints**: Provide the LLM with a relationship map (entity A connects to entity B via table C on column D) to improve JOIN accuracy.
-- **Investigation templates**: Optional starting-point prompts ("investigate this company for bid rigging") that the LLM can deviate from — guidance, not constraints.
-- **Cross-investigation memory**: Let the LLM reference findings from previous investigations to detect patterns across multiple tips.
+- **Materialized risk scores**: Once common investigation patterns stabilize, materialize them as views for faster
+  access — but as optimization, not as the primary interface.
+- **Graph-aware schema hints**: Provide the LLM with a relationship map (entity A connects to entity B via table C on
+  column D) to improve JOIN accuracy.
+- **Investigation templates**: Optional starting-point prompts ("investigate this company for bid rigging") that the LLM
+  can deviate from — guidance, not constraints.
+- **Cross-investigation memory**: Let the LLM reference findings from previous investigations to detect patterns across
+  multiple tips.
